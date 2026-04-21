@@ -5,9 +5,12 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "sdkVersion": "54.0.0",
     "splash": {
-      "backgroundColor": "#050510"
+      "backgroundColor": "#050510",
+      "resizeMode": "contain"
     },
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ev8.soundapp",
