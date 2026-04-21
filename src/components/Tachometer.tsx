@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, View } from 'react-native';
 import Svg, {
   Circle,
@@ -10,7 +10,6 @@ import Svg, {
   RadialGradient,
   Stop,
   LinearGradient,
-  Rect,
 } from 'react-native-svg';
 
 const SIZE        = 320;
@@ -223,7 +222,7 @@ export default function Tachometer({ rpm }: Props) {
 
 // Separate component so the Animated.Value drives re-renders of just the needle
 function AnimatedNeedle({ animRpm }: { animRpm: Animated.Value }) {
-  const [needleRpm, setNeedleRpm] = React.useState(0);
+  const [needleRpm, setNeedleRpm] = useState(0);
 
   useEffect(() => {
     const id = animRpm.addListener(({ value }) => setNeedleRpm(value));

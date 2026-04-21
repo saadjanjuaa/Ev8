@@ -24,7 +24,7 @@ import * as Location from 'expo-location';
 import Tachometer from './src/components/Tachometer';
 import GlassCard from './src/components/GlassCard';
 import { ENGINE_HTML } from './src/audio/engineHtml';
-import { calcEngine, formatSpeed, getGear, rpmColor } from './src/utils/engineSim';
+import { calcEngine, rpmColor } from './src/utils/engineSim';
 
 // ── Throttle bar ────────────────────────────────────────────────────────────
 function ThrottleBar({ value }: { value: number }) {
