@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "EV8",
+    "slug": "ev8-sound-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#050510"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ev8.soundapp",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#050510"
+      },
+      "package": "com.ev8.soundapp",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "EV8 uses your location to detect speed for engine sound simulation."
+        }
+      ]
+    ]
+  }
+}
