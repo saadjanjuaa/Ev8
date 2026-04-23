@@ -228,7 +228,7 @@ export default function App() {
      Render
   ───────────────────────────────────────────────────────────────────────── */
   return (
-    <SafeAreaView style={s.root}>
+    <View style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient
         colors={['#05050e','#09071a','#070510','#050310']}
@@ -250,8 +250,9 @@ export default function App() {
         originWhitelist={['*']}
       />
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.content}
-        showsVerticalScrollIndicator={false}>
+      <SafeAreaView style={s.safe}>
+        <ScrollView style={s.scroll} contentContainerStyle={s.content}
+          showsVerticalScrollIndicator={false}>
 
         {/* Header */}
         <View style={s.hdr}>
@@ -365,8 +366,9 @@ export default function App() {
             ? 'Start engine · drag slider or tap a preset speed'
             : 'Start engine · drive and hear the GT-R respond'}
         </Text>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -374,10 +376,13 @@ export default function App() {
 const PAD = 18;
 const s = StyleSheet.create({
   root:    { flex:1, backgroundColor:'#05050e' },
+  safe:    { flex:1 },
   scroll:  { flex:1 },
   content: {
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 32) + 8 : 12,
-    paddingHorizontal: PAD, paddingBottom: 32,
+    // SafeAreaView handles iOS notch; Android needs manual status-bar offset
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 32) : 8,
+    paddingHorizontal: PAD,
+    paddingBottom: 32,
   },
   // WebView: 1×1px, on-screen, nearly transparent — iOS needs it visible for audio
   wv: { position:'absolute', width:1, height:1, top:0, left:0, opacity:0.01 },
