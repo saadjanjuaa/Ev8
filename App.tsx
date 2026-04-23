@@ -125,6 +125,8 @@ export default function App() {
 
   const wvRef      = useRef<WebView>(null);
   const prevSpd    = useRef(0);
+  const smoothSpd  = useRef(0);   // EMA-smoothed GPS speed
+  const prevGear   = useRef(1);   // for gear-shift detection
   const locSub     = useRef<Location.LocationSubscription | null>(null);
   const runningRef = useRef(false);
   const testRef    = useRef(false);
@@ -148,6 +150,10 @@ export default function App() {
     prevSpd.current = kmh;
     setRpm(r); setGear(g); setThrottle(t);
     sendAudio({ type: 'setRPM', rpm: r, throttle: t });
+    if (g !== prevGear.current) {
+      prevGear.current = g;
+      sendAudio({ type: 'gearShift' });
+    }
   };
   const applySpeed = useCallback((k: number) => applyImpl.current(k), []);
 
@@ -167,7 +173,10 @@ export default function App() {
     locSub.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 150, distanceInterval: 0 },
       loc => {
-        const kmh = Math.max(0, (loc.coords.speed ?? 0) * 3.6);
+        const raw = Math.max(0, (loc.coords.speed ?? 0) * 3.6);
+        // EMA smoothing (α=0.35) — kills GPS jitter that causes false RPM spikes
+        smoothSpd.current = smoothSpd.current * 0.65 + raw * 0.35;
+        const kmh = smoothSpd.current;
         setGpsSpd(kmh);
         if (!testRef.current) applySpeed(kmh);
       },
@@ -194,7 +203,7 @@ export default function App() {
     sendAudio({ type: 'stop' });
     setRunning(false); setGpsSpd(0); setRpm(720);
     setGear(1); setThrottle(0); setTestSpd(0);
-    prevSpd.current = 0;
+    prevSpd.current = 0; smoothSpd.current = 0; prevGear.current = 1;
   }, [stopGPS, sendAudio]);
 
   const toggle = useCallback(() => {
@@ -375,7 +384,7 @@ export default function App() {
 /* ─── Styles ─────────────────────────────────────────────────────────────────── */
 const PAD = 18;
 const s = StyleSheet.create({
-  root:    { flex:1, backgroundColor:'#05050e' },
+  root:    { position:'absolute', top:0, left:0, right:0, bottom:0, backgroundColor:'#05050e' },
   safe:    { flex:1 },
   scroll:  { flex:1 },
   content: {
