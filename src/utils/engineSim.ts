@@ -1,9 +1,9 @@
-// Speed → RPM simulation for a V8 muscle car
-// Models a 6-speed manual with realistic gear ratios
+// Speed → RPM simulation — tuned for 130 km/h max (Norwegian roads)
+// Gear thresholds scaled so redline (~7000 RPM) hits at 130 km/h in 6th.
 
-const GEAR_THRESHOLDS = [0, 20, 42, 68, 100, 135]; // km/h to upshift
-// RPM per (km/h) for each gear — derived from real gearbox + axle math
-const RPM_PER_KMH = [0, 148, 82, 56, 38, 28, 21];
+const GEAR_THRESHOLDS = [0, 12, 26, 44, 64, 88]; // km/h — upshift points
+// RPM per (km/h) for each gear: calibrated so shift point ≈ 5500–6500 RPM
+const RPM_PER_KMH   = [0, 380, 195, 128, 90, 70, 54];
 
 export function getGear(speedKmh: number): number {
   for (let g = 6; g >= 1; g--) {
@@ -18,33 +18,22 @@ export interface EngineState {
   throttle: number;
 }
 
-export function calcEngine(
-  speedKmh: number,
-  prevSpeedKmh: number,
-): EngineState {
+export function calcEngine(speedKmh: number, prevSpeedKmh: number): EngineState {
   const gear = getGear(speedKmh);
-  const accelKmhPerTick = speedKmh - prevSpeedKmh;
+  const accel = speedKmh - prevSpeedKmh;
 
-  // Natural (cruise) RPM for current gear and speed
   const cruiseRPM = Math.max(820, speedKmh * RPM_PER_KMH[gear]);
-
-  // When accelerating: RPM spikes above cruise (driver held gear, or downshifted)
-  const rpmSpike = Math.max(0, accelKmhPerTick * 210);
-
-  const rpm = Math.min(7000, cruiseRPM + rpmSpike);
-
-  // Throttle: normalised 0–1 from measured acceleration
-  const throttle = accelKmhPerTick > 0 ? Math.min(1, accelKmhPerTick / 9) : 0;
+  const rpmSpike  = Math.max(0, accel * 210);
+  const rpm       = Math.min(7000, cruiseRPM + rpmSpike);
+  const throttle  = accel > 0 ? Math.min(1, accel / 9) : 0;
 
   return { rpm, gear, throttle };
 }
 
-// Format speed nicely
 export function formatSpeed(kmh: number): string {
   return Math.round(kmh).toString().padStart(3, ' ');
 }
 
-// RPM zone colour
 export function rpmColor(rpm: number): string {
   if (rpm < 4500) return '#22ff88';
   if (rpm < 6000) return '#ffaa00';

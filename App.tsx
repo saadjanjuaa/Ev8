@@ -13,8 +13,8 @@ import GlassCard from './src/components/GlassCard';
 import { ENGINE_HTML } from './src/audio/engineHtml';
 import { calcEngine, rpmColor } from './src/utils/engineSim';
 
-const MAX_SPD   = 220;
-const PRESETS   = [0, 30, 60, 90, 120, 160, 200];
+const MAX_SPD   = 130;
+const PRESETS   = [0, 20, 40, 60, 80, 100, 130];
 
 /* ─────────────────────────────────────────────────────────────────────────────
    SpeedSlider — uses View responder system instead of PanResponder
