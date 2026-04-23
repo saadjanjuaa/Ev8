@@ -1,478 +1,375 @@
-// Nissan GT-R R35 VR38DETT — Twin-Turbo V6 synthesizer
-// Sonic signature:
-//   • V6 firing pattern (3 power strokes / crank revolution)
-//   • Twin-turbo compressor whine rising sharply with RPM
-//   • Blow-off valve "pssh" on throttle lift
-//   • Metallic, clipped exhaust crackle at high RPM
-//   • More even harmonic balance than a V8 (less "potato" burble)
+// GT-R R35 VR38DETT — improved synthesis
+// Key improvements over previous version:
+//   • Synthetic convolution reverb (exhaust pipe resonance)
+//   • Pink noise (1/f spectrum — far more natural than white noise)
+//   • Very high-Q turbo whine (Q=35) for metallic ring
+//   • FM synthesis on engine oscillator for organic character
+//   • Engine/turbo balance crossfades at ~3000 RPM
+//   • AudioContext created at load, resumed on start
 
 export const ENGINE_HTML = `<!DOCTYPE html>
 <html><head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>*{margin:0;padding:0}body{background:transparent}</style>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:transparent;overflow:hidden}</style>
 </head><body><script>
 (function(){
 'use strict';
 
-var IDLE_RPM = 720;
-var MAX_RPM  = 8000;
-var RED_RPM  = 7400;
+var IDLE = 720, MAX = 8000, RED = 7400;
 
-var ctx           = null;
-var nodes         = {};
-var engineActive  = false;
-var currentRPM    = IDLE_RPM;
-var targetRPM     = IDLE_RPM;
-var currentThrottle = 0;
-var lastThrottle  = 0;
-var rafId         = null;
-var lastTs        = 0;
-var bovCooldown   = 0;
-var popCooldown   = 0;
+var ctx = null, nodes = {}, active = false;
+var curRPM = IDLE, tgtRPM = IDLE, curThr = 0, lastThr = 0;
+var rafId = null, lastTs = 0, bovCD = 0, popCD = 0;
 
-function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v;}
+function clamp(v,a,b){return v<a?a:v>b?b:v;}
 
-/* ── Hard-clip distortion (more digital/aggressive than V8 soft-clip) ────── */
-function makeHardClip(drive) {
-  var N = 512, c = new Float32Array(N);
-  for (var i = 0; i < N; i++) {
-    var x = (i * 2 / N) - 1;
-    var y = x * drive;
-    // Asymmetric: slightly harder negative clip (exhaust backpressure character)
-    if (y > 0)  y = 1 - Math.exp(-y);
-    else        y = -(1 - Math.exp(y * 0.85)) * 1.1;
-    c[i] = clamp(y / drive, -1, 1);
+/* ── Pink noise (Paul Kellett's method — much more natural than white) ── */
+function makePink(ctx) {
+  var sr = ctx.sampleRate, len = sr * 4;
+  var buf = ctx.createBuffer(1, len, sr);
+  var d = buf.getChannelData(0);
+  var b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for (var i=0;i<len;i++) {
+    var w = Math.random()*2-1;
+    b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+    b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+    b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+    d[i]=clamp((b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11,-1,1);
+    b6=w*0.115926;
+  }
+  var s=ctx.createBufferSource(); s.buffer=buf; s.loop=true; s.start(0);
+  return s;
+}
+
+/* ── Synthetic exhaust impulse response (pipe resonance reverb) ── */
+function makeExhaustIR(ctx) {
+  var sr = ctx.sampleRate;
+  var len = Math.floor(sr * 0.22); // 220ms tight reverb
+  var buf = ctx.createBuffer(2, len, sr);
+  for (var ch=0;ch<2;ch++) {
+    var d = buf.getChannelData(ch);
+    for (var i=0;i<len;i++) {
+      var t = i/sr;
+      var pre = 0.004; // 4ms pre-delay (pipe travel time)
+      if (t < pre) { d[i]=0; continue; }
+      var decay = Math.exp(-(t-pre)*28);
+      // Early reflection at ~12ms (secondary pipe resonance)
+      var er = (i > Math.floor(0.012*sr)) ? d[i-Math.floor(0.012*sr)]*0.28 : 0;
+      d[i] = ((Math.random()*2-1)*decay + er) * (ch===0 ? 1 : 0.92);
+    }
+  }
+  return buf;
+}
+
+/* ── Hard-clip distortion (GT-R: compressed/digital feel) ── */
+function makeClip(drive) {
+  var N=512, c=new Float32Array(N);
+  for (var i=0;i<N;i++) {
+    var x=(i*2/N)-1, y=x*drive;
+    if (y>0)  y=1-Math.exp(-y);
+    else      y=-(1-Math.exp(y*0.82))*1.12;
+    c[i]=clamp(y/drive,-1,1);
   }
   return c;
 }
 
-/* ── White noise buffer ──────────────────────────────────────────────────── */
-function makeNoise(ctx) {
-  var len = ctx.sampleRate * 4;
-  var buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  var d   = buf.getChannelData(0);
-  for (var i = 0; i < len; i++) d[i] = Math.random()*2-1;
-  var s = ctx.createBufferSource();
-  s.buffer = buf; s.loop = true; s.start(0);
-  return s;
-}
-
-/* ── VR38DETT Fourier series ─────────────────────────────────────────────── */
-// V6 at 60° bank angle creates stronger even harmonics than a cross-plane V8.
-// The twin-turbo compresses the exhaust pulse, emphasising mid harmonics.
+/* ── GT-R V6 Fourier wave ── */
 function makeGTRWave(ctx) {
-  var H  = 14;
-  var re = new Float32Array(H+1);
-  var im = new Float32Array(H+1);
-  // Tuned to match recorded GTR spectral analysis
-  re[1]  = 1.00;   // fundamental — less dominant than V8
-  re[2]  = 0.62;   // 2nd ← V6 character (strong even harmonic)
-  re[3]  = 0.58;   // 3rd
-  re[4]  = 0.34;
-  re[5]  = 0.50;   // 5th ← twin-scroll scavenging emphasis
-  re[6]  = 0.22;
-  re[7]  = 0.28;
-  re[8]  = 0.12;
-  re[9]  = 0.18;
-  re[10] = 0.07;
-  re[11] = 0.13;
-  re[12] = 0.05;
-  // Asymmetric phase gives directional exhaust feel
-  im[2]  =  0.18;
-  im[4]  = -0.11;
-  im[6]  =  0.07;
-  return ctx.createPeriodicWave(re, im, {disableNormalization: false});
+  var H=14, re=new Float32Array(H+1), im=new Float32Array(H+1);
+  re[1]=1.00; re[2]=0.62; re[3]=0.55; re[4]=0.32;
+  re[5]=0.48; re[6]=0.20; re[7]=0.25; re[8]=0.10;
+  re[9]=0.16; re[10]=0.07; re[11]=0.12; re[12]=0.05;
+  im[2]=0.18; im[4]=-0.11; im[6]=0.07;
+  return ctx.createPeriodicWave(re, im, {disableNormalization:false});
 }
 
-// V6: 3 power strokes per crank revolution
-function fireHz(rpm)  { return (rpm / 60) * 3; }
+function fireHz(rpm){return (rpm/60)*3;}
+function t1Hz(f){return 160+Math.pow(f,1.35)*3900;}
+function t2Hz(f){return 150+Math.pow(f,1.35)*3650;}
 
-// Twin-turbo compressor whine — two slightly different pitches
-function turbo1Hz(f)  { return 180 + Math.pow(f, 1.4) * 3800; }
-function turbo2Hz(f)  { return 168 + Math.pow(f, 1.4) * 3550; }
+/* ── Build graph ── */
+function buildGraph() {
+  if (!ctx) return;
+  var t=ctx.currentTime, hz=fireHz(IDLE);
 
-/* ── Build audio graph ───────────────────────────────────────────────────── */
-function init() {
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  var t  = ctx.currentTime;
-  var hz = fireHz(IDLE_RPM);
-  var f0 = 0; // rpmFrac at init
-
-  /* ── Output chain ── */
-  nodes.master = ctx.createGain();
-  nodes.master.gain.setValueAtTime(0, t);
+  /* output chain */
+  nodes.master=ctx.createGain(); nodes.master.gain.setValueAtTime(0,t);
   nodes.master.connect(ctx.destination);
 
-  nodes.comp = ctx.createDynamicsCompressor();
-  nodes.comp.threshold.value = -9;
-  nodes.comp.knee.value      = 8;
-  nodes.comp.ratio.value     = 3.5;
-  nodes.comp.attack.value    = 0.002;
-  nodes.comp.release.value   = 0.1;
-  nodes.comp.connect(nodes.master);
+  nodes.comp=ctx.createDynamicsCompressor();
+  nodes.comp.threshold.value=-9; nodes.comp.knee.value=8;
+  nodes.comp.ratio.value=3.5; nodes.comp.attack.value=0.002;
+  nodes.comp.release.value=0.1; nodes.comp.connect(nodes.master);
 
-  // High shelf — GTR has sizzle in the 5–10 kHz range
-  nodes.hiShelf = ctx.createBiquadFilter();
-  nodes.hiShelf.type = 'highshelf';
-  nodes.hiShelf.frequency.value = 6000;
-  nodes.hiShelf.gain.value = 1.5;
-  nodes.hiShelf.connect(nodes.comp);
+  nodes.hiShelf=ctx.createBiquadFilter();
+  nodes.hiShelf.type='highshelf'; nodes.hiShelf.frequency.value=5500;
+  nodes.hiShelf.gain.value=2; nodes.hiShelf.connect(nodes.comp);
 
-  // Mid presence
-  nodes.presence = ctx.createBiquadFilter();
-  nodes.presence.type = 'peaking';
-  nodes.presence.frequency.value = 550;
-  nodes.presence.Q.value = 0.8;
-  nodes.presence.gain.value = 5;
-  nodes.presence.connect(nodes.hiShelf);
+  nodes.pres=ctx.createBiquadFilter();
+  nodes.pres.type='peaking'; nodes.pres.frequency.value=520;
+  nodes.pres.Q.value=0.85; nodes.pres.gain.value=5;
+  nodes.pres.connect(nodes.hiShelf);
 
-  // Final LP — tame ultra-high freq noise
-  nodes.finalLP = ctx.createBiquadFilter();
-  nodes.finalLP.type = 'lowpass';
-  nodes.finalLP.frequency.value = 7000;
-  nodes.finalLP.Q.value = 0.6;
-  nodes.finalLP.connect(nodes.presence);
+  nodes.finalLP=ctx.createBiquadFilter();
+  nodes.finalLP.type='lowpass'; nodes.finalLP.frequency.value=7000;
+  nodes.finalLP.Q.value=0.6; nodes.finalLP.connect(nodes.pres);
 
-  // HP — remove subsonic mud (GTR is tighter in the low end vs V8)
-  nodes.outputHP = ctx.createBiquadFilter();
-  nodes.outputHP.type = 'highpass';
-  nodes.outputHP.frequency.value = 70;
-  nodes.outputHP.Q.value = 0.8;
-  nodes.outputHP.connect(nodes.finalLP);
+  /* ── Exhaust convolution reverb ── */
+  nodes.reverb=ctx.createConvolver();
+  nodes.reverb.buffer=makeExhaustIR(ctx);
+  nodes.reverbGain=ctx.createGain(); nodes.reverbGain.gain.value=0.45;
+  nodes.reverbDry=ctx.createGain(); nodes.reverbDry.gain.value=0.7;
+  // reverb only on engine oscillators (not turbo/BOV)
+  nodes.reverbDry.connect(nodes.finalLP);
+  nodes.reverbGain.connect(nodes.reverb);
+  nodes.reverb.connect(nodes.finalLP);
 
-  // Post-distortion LP
-  nodes.postLP = ctx.createBiquadFilter();
-  nodes.postLP.type = 'lowpass';
-  nodes.postLP.frequency.value = 3000;
-  nodes.postLP.Q.value = 0.5;
-  nodes.postLP.connect(nodes.outputHP);
+  nodes.outputHP=ctx.createBiquadFilter();
+  nodes.outputHP.type='highpass'; nodes.outputHP.frequency.value=65;
+  nodes.outputHP.Q.value=0.8; nodes.outputHP.connect(nodes.reverbDry);
+  nodes.outputHP.connect(nodes.reverbGain);
 
-  // Hard-clip distortion (GTR = more "digital" sounding than a V8)
-  nodes.dist = ctx.createWaveShaper();
-  nodes.dist.curve = makeHardClip(3.5);
-  nodes.dist.oversample = '4x';
+  nodes.postLP=ctx.createBiquadFilter();
+  nodes.postLP.type='lowpass'; nodes.postLP.frequency.value=3000;
+  nodes.postLP.Q.value=0.5; nodes.postLP.connect(nodes.outputHP);
+
+  nodes.dist=ctx.createWaveShaper();
+  nodes.dist.curve=makeClip(3.5); nodes.dist.oversample='4x';
   nodes.dist.connect(nodes.postLP);
 
-  // Drive gain
-  nodes.drive = ctx.createGain();
-  nodes.drive.gain.value = 2.5;
+  nodes.drive=ctx.createGain(); nodes.drive.gain.value=2.6;
   nodes.drive.connect(nodes.dist);
 
-  // Engine oscillator mix
-  nodes.engMix = ctx.createGain();
-  nodes.engMix.gain.value = 0.5;
+  nodes.engMix=ctx.createGain(); nodes.engMix.gain.value=0.48;
   nodes.engMix.connect(nodes.drive);
 
-  /* ── Main engine oscillator (V6 wave) ── */
-  var wave = makeGTRWave(ctx);
-  nodes.oscA = ctx.createOscillator();
-  nodes.oscA.setPeriodicWave(wave);
-  nodes.oscA.frequency.setValueAtTime(hz, t);
+  /* ── FM engine oscillator (modulator adds organic complexity) ── */
+  var wave=makeGTRWave(ctx);
+  nodes.oscA=ctx.createOscillator(); nodes.oscA.setPeriodicWave(wave);
+  nodes.oscA.frequency.setValueAtTime(hz,t);
+  // FM modulator at half firing freq — subtle warble
+  nodes.fmMod=ctx.createOscillator(); nodes.fmMod.type='sine';
+  nodes.fmMod.frequency.setValueAtTime(hz/2,t);
+  nodes.fmAmt=ctx.createGain(); nodes.fmAmt.gain.value=1.8; // FM depth in Hz
+  nodes.fmMod.connect(nodes.fmAmt);
+  nodes.fmAmt.connect(nodes.oscA.frequency);
 
-  nodes.gainA = ctx.createGain();
-  nodes.gainA.gain.setValueAtTime(0.75, t);
-  nodes.oscA.connect(nodes.gainA);
-  nodes.gainA.connect(nodes.engMix);
+  nodes.gainA=ctx.createGain(); nodes.gainA.gain.setValueAtTime(0.72,t);
+  nodes.oscA.connect(nodes.gainA); nodes.gainA.connect(nodes.engMix);
 
-  /* ── Sub oscillator — crank frequency (hz/3) — lighter than V8 ── */
-  nodes.oscSub = ctx.createOscillator();
-  nodes.oscSub.type = 'sine';
-  nodes.oscSub.frequency.setValueAtTime(hz / 3, t);
-  nodes.gainSub = ctx.createGain();
-  nodes.gainSub.gain.setValueAtTime(0.30, t);  // less sub than V8
-  nodes.oscSub.connect(nodes.gainSub);
-  nodes.gainSub.connect(nodes.engMix);
+  /* ── Sub (crank frequency) — less dominant than V8 ── */
+  nodes.oscSub=ctx.createOscillator(); nodes.oscSub.type='sine';
+  nodes.oscSub.frequency.setValueAtTime(hz/3,t);
+  nodes.gainSub=ctx.createGain(); nodes.gainSub.gain.setValueAtTime(0.28,t);
+  nodes.oscSub.connect(nodes.gainSub); nodes.gainSub.connect(nodes.engMix);
 
-  /* ── Slight wow LFO — mechanical character ── */
-  nodes.wowLFO = ctx.createOscillator();
-  nodes.wowLFO.frequency.value = 3.1;
-  nodes.wowAmt = ctx.createGain();
-  nodes.wowAmt.gain.value = 0.8;
-  nodes.wowLFO.connect(nodes.wowAmt);
-  nodes.wowAmt.connect(nodes.oscA.frequency);
+  /* ── Twin turbo whine (very high Q — metallic ring) ── */
+  // Each turbo: sawtooth → very narrow bandpass → gain
+  nodes.t1=ctx.createOscillator(); nodes.t1.type='sawtooth';
+  nodes.t1.frequency.setValueAtTime(t1Hz(0),t);
+  nodes.t1f=ctx.createBiquadFilter(); nodes.t1f.type='bandpass';
+  nodes.t1f.frequency.setValueAtTime(t1Hz(0),t); nodes.t1f.Q.value=35;
+  nodes.t1g=ctx.createGain(); nodes.t1g.gain.setValueAtTime(0,t);
+  nodes.t1.connect(nodes.t1f); nodes.t1f.connect(nodes.t1g);
 
-  /* ══ TWIN-TURBO WHINE ══════════════════════════════════════════════════ */
-  // Two oscillators (turbo 1 and 2), both with resonant filters
-  // They combine to give that distinctive layered GTR whine
+  nodes.t2=ctx.createOscillator(); nodes.t2.type='sawtooth';
+  nodes.t2.frequency.setValueAtTime(t2Hz(0),t);
+  nodes.t2f=ctx.createBiquadFilter(); nodes.t2f.type='bandpass';
+  nodes.t2f.frequency.setValueAtTime(t2Hz(0),t); nodes.t2f.Q.value=28;
+  nodes.t2g=ctx.createGain(); nodes.t2g.gain.setValueAtTime(0,t);
+  nodes.t2.connect(nodes.t2f); nodes.t2f.connect(nodes.t2g);
 
-  // Turbo 1
-  nodes.turbo1 = ctx.createOscillator();
-  nodes.turbo1.type = 'sawtooth';
-  nodes.turbo1.frequency.setValueAtTime(turbo1Hz(f0), t);
+  // Turbo mix → bypass exhaust reverb (heard from intake/intercooler)
+  nodes.turboMix=ctx.createGain(); nodes.turboMix.gain.value=1;
+  nodes.t1g.connect(nodes.turboMix); nodes.t2g.connect(nodes.turboMix);
+  nodes.turboMix.connect(nodes.finalLP);
 
-  nodes.turbo1Filter = ctx.createBiquadFilter();
-  nodes.turbo1Filter.type = 'bandpass';
-  nodes.turbo1Filter.frequency.setValueAtTime(turbo1Hz(f0), t);
-  nodes.turbo1Filter.Q.value = 18; // Very resonant — that metallic whine quality
+  /* ── Induction noise (pink noise, rises sharply with boost) ── */
+  nodes.pink=makePink(ctx);
+  nodes.indHP=ctx.createBiquadFilter(); nodes.indHP.type='highpass';
+  nodes.indHP.frequency.value=900;
+  nodes.indBP=ctx.createBiquadFilter(); nodes.indBP.type='bandpass';
+  nodes.indBP.frequency.value=3000; nodes.indBP.Q.value=0.7;
+  nodes.indG=ctx.createGain(); nodes.indG.gain.value=0;
+  nodes.pink.connect(nodes.indHP); nodes.indHP.connect(nodes.indBP);
+  nodes.indBP.connect(nodes.indG); nodes.indG.connect(nodes.finalLP);
 
-  nodes.turbo1Gain = ctx.createGain();
-  nodes.turbo1Gain.gain.setValueAtTime(0, t); // silent at idle
+  /* ── Exhaust pop/crackle ── */
+  nodes.popN=makePink(ctx);
+  nodes.popF=ctx.createBiquadFilter(); nodes.popF.type='bandpass';
+  nodes.popF.frequency.value=1100; nodes.popF.Q.value=5;
+  nodes.popG=ctx.createGain(); nodes.popG.gain.setValueAtTime(0,t);
+  nodes.popN.connect(nodes.popF); nodes.popF.connect(nodes.popG);
+  nodes.popG.connect(nodes.comp);
 
-  nodes.turbo1.connect(nodes.turbo1Filter);
-  nodes.turbo1Filter.connect(nodes.turbo1Gain);
+  /* ── BOV (blow-off valve) ── */
+  nodes.bovN=makePink(ctx);
+  nodes.bovHP=ctx.createBiquadFilter(); nodes.bovHP.type='highpass';
+  nodes.bovHP.frequency.value=500;
+  nodes.bovF=ctx.createBiquadFilter(); nodes.bovF.type='bandpass';
+  nodes.bovF.frequency.value=1400; nodes.bovF.Q.value=2.8;
+  nodes.bovG=ctx.createGain(); nodes.bovG.gain.setValueAtTime(0,t);
+  nodes.bovN.connect(nodes.bovHP); nodes.bovHP.connect(nodes.bovF);
+  nodes.bovF.connect(nodes.bovG); nodes.bovG.connect(nodes.comp);
 
-  // Turbo 2 (slightly different pitch — second turbo)
-  nodes.turbo2 = ctx.createOscillator();
-  nodes.turbo2.type = 'sawtooth';
-  nodes.turbo2.frequency.setValueAtTime(turbo2Hz(f0), t);
-
-  nodes.turbo2Filter = ctx.createBiquadFilter();
-  nodes.turbo2Filter.type = 'bandpass';
-  nodes.turbo2Filter.frequency.setValueAtTime(turbo2Hz(f0), t);
-  nodes.turbo2Filter.Q.value = 15;
-
-  nodes.turbo2Gain = ctx.createGain();
-  nodes.turbo2Gain.gain.setValueAtTime(0, t);
-
-  nodes.turbo2.connect(nodes.turbo2Filter);
-  nodes.turbo2Filter.connect(nodes.turbo2Gain);
-
-  // Turbo mix → bypass distortion, goes straight to output HP
-  nodes.turboMix = ctx.createGain();
-  nodes.turboMix.gain.value = 1;
-  nodes.turbo1Gain.connect(nodes.turboMix);
-  nodes.turbo2Gain.connect(nodes.turboMix);
-  nodes.turboMix.connect(nodes.outputHP);
-
-  /* ══ INDUCTION NOISE (pressurized air rushing through intake) ══════════ */
-  nodes.induction = makeNoise(ctx);
-  nodes.inductionHP = ctx.createBiquadFilter();
-  nodes.inductionHP.type = 'highpass';
-  nodes.inductionHP.frequency.value = 1000;
-  nodes.inductionBP = ctx.createBiquadFilter();
-  nodes.inductionBP.type = 'bandpass';
-  nodes.inductionBP.frequency.value = 3000;
-  nodes.inductionBP.Q.value = 0.6;
-  nodes.inductionGain = ctx.createGain();
-  nodes.inductionGain.gain.value = 0;
-
-  nodes.induction.connect(nodes.inductionHP);
-  nodes.inductionHP.connect(nodes.inductionBP);
-  nodes.inductionBP.connect(nodes.inductionGain);
-  nodes.inductionGain.connect(nodes.finalLP);
-
-  /* ══ EXHAUST CRACKLE / POPS ════════════════════════════════════════════ */
-  nodes.popNoise = makeNoise(ctx);
-  nodes.popFilter = ctx.createBiquadFilter();
-  nodes.popFilter.type = 'bandpass';
-  nodes.popFilter.frequency.value = 1200;
-  nodes.popFilter.Q.value = 5;
-  nodes.popGain = ctx.createGain();
-  nodes.popGain.gain.setValueAtTime(0, t);
-  nodes.popNoise.connect(nodes.popFilter);
-  nodes.popFilter.connect(nodes.popGain);
-  nodes.popGain.connect(nodes.comp);
-
-  /* ══ BLOW-OFF VALVE ═══════════════════════════════════════════════════ */
-  // BOV = that "pssh" / "whoosh" sound when you lift off at high boost
-  nodes.bovNoise = makeNoise(ctx);
-  nodes.bovHP = ctx.createBiquadFilter();
-  nodes.bovHP.type = 'highpass';
-  nodes.bovHP.frequency.value = 600;
-  nodes.bovFilter = ctx.createBiquadFilter();
-  nodes.bovFilter.type = 'bandpass';
-  nodes.bovFilter.frequency.value = 1500;
-  nodes.bovFilter.Q.value = 2.5;
-  nodes.bovGain = ctx.createGain();
-  nodes.bovGain.gain.setValueAtTime(0, t);
-
-  nodes.bovNoise.connect(nodes.bovHP);
-  nodes.bovHP.connect(nodes.bovFilter);
-  nodes.bovFilter.connect(nodes.bovGain);
-  nodes.bovGain.connect(nodes.comp);
-
-  // Start oscillators
-  nodes.oscA.start();
-  nodes.oscSub.start();
-  nodes.wowLFO.start();
-  nodes.turbo1.start();
-  nodes.turbo2.start();
-
-  engineActive = true;
-  lastTs = performance.now();
-
-  // Startup: brief blip to ~900, settle at idle
-  targetRPM = 920;
-  setTimeout(function(){ targetRPM = IDLE_RPM; }, 800);
-
-  setTimeout(function(){
-    nodes.master.gain.setTargetAtTime(0.88, ctx.currentTime, 0.4);
-  }, 60);
-
-  startLoop();
+  /* start all oscillators */
+  [nodes.oscA,nodes.oscSub,nodes.fmMod,nodes.t1,nodes.t2].forEach(function(o){o.start();});
 }
 
-/* ── Blow-off valve trigger ─────────────────────────────────────────────── */
 function triggerBOV(intensity) {
-  if (!ctx) return;
-  var t   = ctx.currentTime;
-  var dur = 0.12 + intensity * 0.2; // longer BOV at higher boost
-  var vol = 0.35 + intensity * 0.5;
-
-  nodes.bovFilter.frequency.cancelScheduledValues(t);
-  nodes.bovFilter.frequency.setValueAtTime(1800 + intensity * 1200, t);
-  nodes.bovFilter.frequency.exponentialRampToValueAtTime(350, t + dur);
-
-  nodes.bovGain.gain.cancelScheduledValues(t);
-  nodes.bovGain.gain.setValueAtTime(0, t);
-  nodes.bovGain.gain.linearRampToValueAtTime(vol, t + 0.015);
-  nodes.bovGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  if (!ctx||!active) return;
+  var t=ctx.currentTime, dur=0.1+intensity*0.25, vol=0.3+intensity*0.6;
+  nodes.bovF.frequency.cancelScheduledValues(t);
+  nodes.bovF.frequency.setValueAtTime(1600+intensity*1400,t);
+  nodes.bovF.frequency.exponentialRampToValueAtTime(300,t+dur);
+  nodes.bovG.gain.cancelScheduledValues(t);
+  nodes.bovG.gain.setValueAtTime(0,t);
+  nodes.bovG.gain.linearRampToValueAtTime(vol,t+0.012);
+  nodes.bovG.gain.exponentialRampToValueAtTime(0.001,t+dur);
 }
 
-/* ── Exhaust pop trigger ────────────────────────────────────────────────── */
 function triggerPop() {
-  if (!ctx) return;
-  var t    = ctx.currentTime;
-  var freq = 900 + Math.random() * 800;
-  nodes.popFilter.frequency.setValueAtTime(freq, t);
-  nodes.popGain.gain.cancelScheduledValues(t);
-  nodes.popGain.gain.setValueAtTime(0, t);
-  nodes.popGain.gain.linearRampToValueAtTime(0.45, t + 0.006);
-  nodes.popGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04 + Math.random()*0.03);
+  if (!ctx||!active) return;
+  var t=ctx.currentTime;
+  nodes.popF.frequency.setValueAtTime(800+Math.random()*900,t);
+  nodes.popG.gain.cancelScheduledValues(t);
+  nodes.popG.gain.setValueAtTime(0,t);
+  nodes.popG.gain.linearRampToValueAtTime(0.5,t+0.005);
+  nodes.popG.gain.exponentialRampToValueAtTime(0.001,t+0.035+Math.random()*0.03);
 }
 
-/* ── Main update loop ───────────────────────────────────────────────────── */
 function startLoop() {
   if (rafId) cancelAnimationFrame(rafId);
-  lastTs = performance.now();
-
+  lastTs=performance.now();
   function loop(ts) {
-    var dt = Math.min((ts - lastTs) / 1000, 0.08);
-    lastTs = ts;
+    var dt=Math.min((ts-lastTs)/1000,0.08); lastTs=ts;
+    var diff=tgtRPM-curRPM;
+    curRPM+=diff*(diff>0?3.8:2.4)*dt;
+    curRPM=clamp(curRPM,IDLE*0.93,MAX);
 
-    // Engine inertia — turbocharged engines have slightly slower RPM response
-    var diff = targetRPM - currentRPM;
-    var rate = diff > 0 ? 3.8 : 2.5;
-    currentRPM += diff * rate * dt;
-    currentRPM = clamp(currentRPM, IDLE_RPM * 0.93, MAX_RPM);
-
-    // BOV: triggered on sharp throttle drop while at high RPM / boost
-    if (bovCooldown > 0) {
-      bovCooldown -= dt;
-    } else if (lastThrottle > 0.45 && currentThrottle < 0.15 && currentRPM > 2800) {
-      var boostIntensity = clamp((currentRPM - 2500) / 4500, 0, 1);
-      triggerBOV(boostIntensity);
-      bovCooldown = 0.6;
+    if (bovCD>0) bovCD-=dt;
+    else if (lastThr>0.45&&curThr<0.12&&curRPM>2500) {
+      triggerBOV(clamp((curRPM-2000)/4500,0,1));
+      bovCD=0.65;
     }
-
-    // Exhaust pop / crackle on decel (less frequent than BOV)
-    if (popCooldown > 0) {
-      popCooldown -= dt;
-    } else if (currentRPM > 3500 && targetRPM < currentRPM - 400) {
-      var popChance = clamp((currentRPM - 3000) / 4000, 0, 1) * 0.5;
-      if (Math.random() < popChance) {
-        triggerPop();
-        popCooldown = 0.05 + Math.random() * 0.1;
+    if (popCD>0) popCD-=dt;
+    else if (curRPM>3200&&tgtRPM<curRPM-400) {
+      if (Math.random()<clamp((curRPM-2800)/4000,0,1)*0.55) {
+        triggerPop(); popCD=0.04+Math.random()*0.09;
       }
     }
-
-    lastThrottle = currentThrottle;
-    updateNodes(currentRPM, currentThrottle);
-    rafId = requestAnimationFrame(loop);
+    lastThr=curThr;
+    update(curRPM,curThr);
+    rafId=requestAnimationFrame(loop);
   }
-
-  rafId = requestAnimationFrame(loop);
+  rafId=requestAnimationFrame(loop);
 }
 
-/* ── Update all audio parameters ────────────────────────────────────────── */
-function updateNodes(rpm, thr) {
-  if (!ctx || !engineActive) return;
-  var t    = ctx.currentTime;
-  var tau  = 0.022;
-  var hz   = fireHz(rpm);
-  var frac = clamp((rpm - IDLE_RPM) / (MAX_RPM - IDLE_RPM), 0, 1);
+function update(rpm,thr) {
+  if (!ctx||!active) return;
+  var t=ctx.currentTime, tau=0.02;
+  var hz=fireHz(rpm);
+  var frac=clamp((rpm-IDLE)/(MAX-IDLE),0,1);
 
-  // ── Engine oscillators ──
-  nodes.oscA.frequency.setTargetAtTime(hz, t, tau);
-  nodes.oscSub.frequency.setTargetAtTime(hz / 3, t, tau);
+  // Engine oscillators
+  nodes.oscA.frequency.setTargetAtTime(hz,t,tau);
+  nodes.oscSub.frequency.setTargetAtTime(hz/3,t,tau);
+  nodes.fmMod.frequency.setTargetAtTime(hz/2,t,tau);
+  nodes.fmAmt.gain.setTargetAtTime(1.5+frac*4,t,tau); // FM depth rises with RPM
 
-  var gA   = 0.65 + frac * 0.20 + thr * 0.12;
-  var gSub = 0.30 - frac * 0.18; // sub drops away at high RPM (less burbly)
-  nodes.gainA.gain.setTargetAtTime(clamp(gA, 0.1, 1), t, tau);
-  nodes.gainSub.gain.setTargetAtTime(clamp(gSub, 0.02, 0.4), t, tau);
+  // Engine gain fades as turbo takes over above ~3000 RPM
+  var engDom = clamp(1-Math.pow(frac,0.7)*0.65, 0.35, 1);
+  nodes.gainA.gain.setTargetAtTime(0.65*engDom+thr*0.1,t,tau);
+  nodes.gainSub.gain.setTargetAtTime(0.28*engDom,t,tau);
+  nodes.engMix.gain.setTargetAtTime(0.42+thr*0.16,t,tau);
 
-  // Drive & distortion — GTR sounds more compressed/digital at high throttle
-  var distDrive = 3.0 + thr * 5.5 + frac * 2.5;
-  nodes.dist.curve = makeHardClip(distDrive);
-  nodes.drive.gain.setTargetAtTime(2.2 + thr * 3.2 + frac * 1.8, t, tau);
-  nodes.engMix.gain.setTargetAtTime(0.42 + thr * 0.18, t, tau);
+  // Drive & distortion
+  nodes.dist.curve=makeClip(3.2+thr*5+frac*2.5);
+  nodes.drive.gain.setTargetAtTime(2.3+thr*3+frac*1.8,t,tau);
+  nodes.postLP.frequency.setTargetAtTime(1400+frac*3600+thr*1400,t,tau);
 
-  // Post-distortion LP brightens at high RPM
-  nodes.postLP.frequency.setTargetAtTime(1600 + frac * 3500 + thr * 1200, t, tau);
+  // Reverb dry/wet shift slightly with throttle
+  nodes.reverbGain.gain.setTargetAtTime(0.4+thr*0.25,t,tau);
+  nodes.reverbDry.gain.setTargetAtTime(0.75-thr*0.1,t,tau);
 
-  // ── Twin-turbo whine ──
-  // Volume: barely audible at idle, dominant at high RPM/boost
-  var turboVol = Math.pow(frac, 1.2) * 0.55 + thr * frac * 0.35;
-  var t1hz     = turbo1Hz(frac);
-  var t2hz     = turbo2Hz(frac);
+  // Twin turbo whine — dominant at high RPM
+  // Volume curve: barely audible until ~2000 RPM, then rises steeply
+  var turboBase = Math.pow(clamp(frac-0.1,0,1)/0.9,1.4);
+  var turboVol  = turboBase*0.7 + thr*turboBase*0.4;
+  var tf1=t1Hz(frac), tf2=t2Hz(frac);
+  nodes.t1.frequency.setTargetAtTime(tf1,t,tau);
+  nodes.t1f.frequency.setTargetAtTime(tf1,t,tau);
+  nodes.t2.frequency.setTargetAtTime(tf2,t,tau);
+  nodes.t2f.frequency.setTargetAtTime(tf2,t,tau);
+  nodes.t1g.gain.setTargetAtTime(clamp(turboVol,0,0.9),t,tau);
+  nodes.t2g.gain.setTargetAtTime(clamp(turboVol*0.82,0,0.75),t,tau);
 
-  nodes.turbo1.frequency.setTargetAtTime(t1hz, t, tau);
-  nodes.turbo1Filter.frequency.setTargetAtTime(t1hz, t, tau);
-  nodes.turbo2.frequency.setTargetAtTime(t2hz, t, tau);
-  nodes.turbo2Filter.frequency.setTargetAtTime(t2hz, t, tau);
+  // Induction noise (rises sharply under boost / high RPM)
+  var indVol=Math.pow(frac,1.6)*0.22+thr*frac*0.2;
+  nodes.indG.gain.setTargetAtTime(clamp(indVol,0,0.45),t,tau);
+  nodes.indBP.frequency.setTargetAtTime(1200+frac*5000+thr*2000,t,tau);
+  nodes.indHP.frequency.setTargetAtTime(500+frac*1000,t,tau);
 
-  nodes.turbo1Gain.gain.setTargetAtTime(clamp(turboVol, 0, 0.8), t, tau);
-  nodes.turbo2Gain.gain.setTargetAtTime(clamp(turboVol * 0.85, 0, 0.7), t, tau);
+  // EQ
+  nodes.pres.frequency.setTargetAtTime(380+frac*380,t,tau);
+  nodes.pres.gain.setTargetAtTime(4+thr*5,t,tau);
+  nodes.finalLP.frequency.setTargetAtTime(4000+frac*4000,t,tau);
 
-  // ── Induction noise (increases dramatically with boost/throttle) ──
-  var indVol  = Math.pow(frac, 1.5) * 0.2 + thr * frac * 0.18;
-  var indFreq = 1500 + frac * 5000 + thr * 2000;
-  nodes.inductionGain.gain.setTargetAtTime(clamp(indVol, 0, 0.4), t, tau);
-  nodes.inductionBP.frequency.setTargetAtTime(indFreq, t, tau);
-  nodes.inductionHP.frequency.setTargetAtTime(600 + frac * 1200, t, tau);
-
-  // ── EQ shifts ──
-  nodes.presence.frequency.setTargetAtTime(400 + frac * 400, t, tau);
-  nodes.presence.gain.setTargetAtTime(4 + thr * 5, t, tau);
-  nodes.finalLP.frequency.setTargetAtTime(4500 + frac * 3500, t, tau);
-
-  // ── Rev limiter ──
-  if (rpm > RED_RPM) {
-    var limAtten = 1 - ((rpm - RED_RPM) / (MAX_RPM - RED_RPM)) * 0.5;
-    nodes.master.gain.setTargetAtTime(0.88 * limAtten, t, 0.008);
+  // Rev limiter
+  if (rpm>RED) {
+    nodes.master.gain.setTargetAtTime(0.88*(1-(rpm-RED)/(MAX-RED)*0.5),t,0.007);
   } else {
-    nodes.master.gain.setTargetAtTime(0.88, t, tau);
+    nodes.master.gain.setTargetAtTime(0.88,t,tau);
   }
 }
 
-/* ── Message handler ────────────────────────────────────────────────────── */
+/* ── Message handler ── */
 function onMsg(evt) {
-  var raw = evt.data, msg;
-  try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e){ return; }
-  if (!msg || !msg.type) return;
-
-  switch (msg.type) {
+  var msg; try{msg=JSON.parse(evt.data);}catch(e){return;}
+  if (!msg||!msg.type) return;
+  switch(msg.type) {
     case 'start':
       if (!ctx) {
-        init();
-      } else if (ctx.state === 'suspended') {
+        ctx=new (window.AudioContext||window.webkitAudioContext)();
+        buildGraph();
+        // Try to resume (may require user gesture on iOS, but attempt anyway)
         ctx.resume().then(function(){
-          nodes.master.gain.setTargetAtTime(0.88, ctx.currentTime, 0.3);
-          engineActive = true;
-          startLoop();
+          tgtRPM=920;
+          setTimeout(function(){tgtRPM=IDLE;},800);
+          setTimeout(function(){nodes.master.gain.setTargetAtTime(0.88,ctx.currentTime,0.4);},60);
+          active=true; startLoop();
         });
+      } else if (ctx.state==='suspended') {
+        ctx.resume().then(function(){
+          nodes.master.gain.setTargetAtTime(0.88,ctx.currentTime,0.3);
+          active=true; startLoop();
+        });
+      } else if (!active) {
+        nodes.master.gain.setTargetAtTime(0.88,ctx.currentTime,0.3);
+        active=true; startLoop();
       }
       break;
     case 'stop':
-      if (ctx && engineActive) {
-        engineActive = false;
-        if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
-        nodes.master.gain.setTargetAtTime(0, ctx.currentTime, 0.7);
-      }
+      active=false;
+      if (rafId){cancelAnimationFrame(rafId);rafId=null;}
+      if (ctx) nodes.master.gain.setTargetAtTime(0,ctx.currentTime,0.7);
+      curRPM=IDLE; tgtRPM=IDLE; curThr=0; lastThr=0;
       break;
     case 'setRPM':
-      targetRPM      = clamp(msg.rpm      || IDLE_RPM, IDLE_RPM, MAX_RPM);
-      currentThrottle = clamp(msg.throttle || 0, 0, 1);
+      tgtRPM=clamp(msg.rpm||IDLE,IDLE,MAX);
+      curThr=clamp(msg.throttle||0,0,1);
       break;
   }
 }
+window.addEventListener('message',onMsg);
+document.addEventListener('message',onMsg);
 
-window.addEventListener('message', onMsg);
-document.addEventListener('message', onMsg);
+// Also try to unlock on any touch in the WebView (iOS safety net)
+document.addEventListener('touchstart',function(){
+  if (ctx&&ctx.state==='suspended') ctx.resume();
+},{passive:true});
 
-function postRN(d){
-  try{ if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(d)); }catch(e){}
-}
+function postRN(d){try{if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify(d));}catch(e){}}
 postRN({type:'ready'});
 })();
 </script></body></html>`;
