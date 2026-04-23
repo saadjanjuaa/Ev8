@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated, Easing, Platform, ScrollView, StatusBar,
+  Animated, Easing, Platform, SafeAreaView, ScrollView, StatusBar,
   StyleSheet, Text, TouchableOpacity, View, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -214,9 +214,13 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Reset state on every WebView load/reload
-  const onWebViewLoad = useCallback(() => {
+  // Mark as not-ready the moment a (re)load starts — before the script runs
+  const onWebViewLoadStart = useCallback(() => {
     setReady(false);
+  }, []);
+
+  // When load finishes, stop engine if running (script sends 'ready' msg shortly after)
+  const onWebViewLoad = useCallback(() => {
     if (runningRef.current) stopEngine();
   }, [stopEngine]);
 
@@ -224,7 +228,7 @@ export default function App() {
      Render
   ───────────────────────────────────────────────────────────────────────── */
   return (
-    <View style={s.root}>
+    <SafeAreaView style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient
         colors={['#05050e','#09071a','#070510','#050310']}
@@ -238,6 +242,7 @@ export default function App() {
         source={{ html: ENGINE_HTML }}
         style={s.wv}
         onMessage={onMsg}
+        onLoadStart={onWebViewLoadStart}
         onLoad={onWebViewLoad}
         javaScriptEnabled
         mediaPlaybackRequiresUserAction={false}
@@ -361,7 +366,7 @@ export default function App() {
             : 'Start engine · drive and hear the GT-R respond'}
         </Text>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -371,7 +376,7 @@ const s = StyleSheet.create({
   root:    { flex:1, backgroundColor:'#05050e' },
   scroll:  { flex:1 },
   content: {
-    paddingTop: Platform.OS==='android' ? (StatusBar.currentHeight??32)+8 : 60,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 32) + 8 : 12,
     paddingHorizontal: PAD, paddingBottom: 32,
   },
   // WebView: 1×1px, on-screen, nearly transparent — iOS needs it visible for audio
