@@ -26,7 +26,7 @@ const NEEDLE_BASE = 14;
 
 const START_DEG = 135;   // 7-o'clock
 const SWEEP_DEG = 270;
-const MAX_RPM   = 7000;
+const MAX_RPM   = 8000;
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -87,7 +87,7 @@ export default function Tachometer({ rpm }: Props) {
       outer,
       isMajor,
       label: isMajor ? String(r / 1000) : null,
-      isRed: r >= 6000,
+      isRed: r >= 7000,
     });
   }
 
@@ -126,9 +126,9 @@ export default function Tachometer({ rpm }: Props) {
           strokeLinecap="round"
         />
 
-        {/* Green zone: 0–4500 */}
+        {/* Green zone: 0–5000 */}
         <Path
-          d={arcPath(START_DEG, rpmToDeg(4500), TRACK_R)}
+          d={arcPath(START_DEG, rpmToDeg(5000), TRACK_R)}
           stroke="#1aff6a"
           strokeWidth={4}
           fill="none"
@@ -136,9 +136,9 @@ export default function Tachometer({ rpm }: Props) {
           opacity={0.45}
         />
 
-        {/* Yellow zone: 4500–6000 */}
+        {/* Yellow zone: 5000–7000 */}
         <Path
-          d={arcPath(rpmToDeg(4500), rpmToDeg(6000), TRACK_R)}
+          d={arcPath(rpmToDeg(5000), rpmToDeg(7000), TRACK_R)}
           stroke="#ffaa00"
           strokeWidth={4}
           fill="none"
@@ -146,9 +146,9 @@ export default function Tachometer({ rpm }: Props) {
           opacity={0.55}
         />
 
-        {/* Red zone: 6000–7000 */}
+        {/* Red zone: 7000–8000 */}
         <Path
-          d={arcPath(rpmToDeg(6000), rpmToDeg(7000), TRACK_R)}
+          d={arcPath(rpmToDeg(7000), rpmToDeg(8000), TRACK_R)}
           stroke="#ff2200"
           strokeWidth={7}
           fill="none"
@@ -160,7 +160,7 @@ export default function Tachometer({ rpm }: Props) {
         {rpm > 0 && (
           <Path
             d={arcPath(START_DEG, rpmToDeg(rpm), TRACK_R)}
-            stroke={rpm < 4500 ? '#22ff88' : rpm < 6000 ? '#ffaa00' : '#ff3300'}
+            stroke={rpm < 5000 ? '#22ff88' : rpm < 7000 ? '#ffaa00' : '#ff3300'}
             strokeWidth={5}
             fill="none"
             strokeLinecap="round"
@@ -183,7 +183,7 @@ export default function Tachometer({ rpm }: Props) {
                 y={polar(rpmToDeg(parseInt(tk.label) * 1000), LABEL_R).y}
                 textAnchor="middle"
                 alignmentBaseline="middle"
-                fill={parseInt(tk.label) >= 6 ? '#ff4400' : 'rgba(255,255,255,0.75)'}
+                fill={parseInt(tk.label) >= 7 ? '#ff4400' : 'rgba(255,255,255,0.75)'}
                 fontSize={11}
                 fontWeight="bold"
               >

@@ -1,14 +1,20 @@
-// Speed → RPM — tuned for Norwegian roads, 130 km/h max
-// Earlier gear shifts keep RPM moderate in normal driving.
-// Acceleration threshold filters GPS noise (jitter < 2 km/h ignored).
+// Speed → RPM for a 6-speed box mapped to 0–130 km/h.
+// At redline (130 km/h in 6th) RPM ≈ 8000 = top sample loop.
+// Gear ratios drop RPM by ~1100 at each upshift, giving realistic progression.
 
-const GEAR_THRESHOLDS = [0, 15, 28, 46, 68, 96]; // km/h upshift points
-const RPM_PER_KMH     = [0, 280, 155, 100, 70, 52, 35];
-// 6th at 130 km/h cruise = ~4550 RPM; hard acceleration can spike higher.
+const IDLE    = 800;
+const REDLINE = 8000;
+
+// Speed at which each gear becomes active (gear 1 starts at 0).
+export const MIN_SPEED_FOR_GEAR = [0, 0, 18, 40, 65, 90, 112]; // indexed by gear
+export const UPSHIFT_KMH        = [18, 40, 65, 90, 112];       // 5 shift points
+
+// RPM per km/h for each gear. Gear 6 at 130 km/h = 7995 RPM (redline).
+const RPM_PER_KMH = [0, 378, 172, 112, 82, 68, 61.5];
 
 export function getGear(speedKmh: number): number {
-  for (let g = 6; g >= 1; g--) {
-    if (speedKmh >= GEAR_THRESHOLDS[g - 1]) return g;
+  for (let g = 6; g >= 2; g--) {
+    if (speedKmh >= MIN_SPEED_FOR_GEAR[g]) return g;
   }
   return 1;
 }
@@ -19,19 +25,17 @@ export interface EngineState {
   throttle: number;
 }
 
+// GPS noise floor is 3 km/h per sample — anything smaller is jitter, not gas.
 export function calcEngine(speedKmh: number, prevSpeedKmh: number): EngineState {
   const gear      = getGear(speedKmh);
   const accel     = speedKmh - prevSpeedKmh;
+  const realAccel = accel > 3.0 ? accel - 3.0 : 0;
 
-  // Filter GPS jitter: only count acceleration above 2 km/h as real
-  const realAccel = accel > 2.0 ? accel - 2.0 : 0;
+  const cruiseRPM = Math.max(IDLE, speedKmh * RPM_PER_KMH[gear]);
+  const rpmSpike  = realAccel * 40;                   // calm — no fly-aways on light gas
+  const rpm       = Math.min(REDLINE, cruiseRPM + rpmSpike);
 
-  const cruiseRPM = Math.max(820, speedKmh * RPM_PER_KMH[gear]);
-  const rpmSpike  = realAccel * 55;                       // was 210 — much calmer
-  const rpm       = Math.min(7000, cruiseRPM + rpmSpike);
-
-  // Throttle only fires on genuine acceleration
-  const throttle  = realAccel > 0 ? Math.min(1, realAccel / 10) : 0;
+  const throttle  = realAccel > 0 ? Math.min(1, realAccel / 8) : 0;
 
   return { rpm, gear, throttle };
 }
@@ -41,7 +45,10 @@ export function formatSpeed(kmh: number): string {
 }
 
 export function rpmColor(rpm: number): string {
-  if (rpm < 4000) return '#22ff88';
-  if (rpm < 5500) return '#ffaa00';
+  if (rpm < 4500) return '#22ff88';
+  if (rpm < 6500) return '#ffaa00';
   return '#ff3300';
 }
+
+export const RPM_REDLINE = REDLINE;
+export const RPM_IDLE    = IDLE;
