@@ -1,26 +1,28 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated, Easing, Platform, SafeAreaView, ScrollView, StatusBar,
+  Animated, Dimensions, Easing, Platform, ScrollView, StatusBar,
   StyleSheet, Text, TouchableOpacity, View, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import WebView from 'react-native-webview';
 import * as Location from 'expo-location';
+import { Audio } from 'expo-av';
 
 import Tachometer from './src/components/Tachometer';
 import GlassCard from './src/components/GlassCard';
 import { ENGINE_HTML } from './src/audio/engineHtml';
-import { SPORT_SAMPLES } from './src/audio/engineSamples';
 import { calcEngine, rpmColor, RPM_IDLE } from './src/utils/engineSim';
 
 const MAX_SPD = 130;
 const PRESETS = [0, 20, 40, 60, 80, 100, 130];
 
-/* ── SpeedSlider ─────────────────────────────────────────────────────────────
-   Uses View responder (not PanResponder) to avoid conflict with ScrollView.
-   Width is measured once; handle() only fires when the rounded speed changes.
-───────────────────────────────────────────────────────────────────────────── */
+const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('screen');
+const STATUS_H = Platform.OS === 'android'
+  ? (StatusBar.currentHeight ?? 24)
+  : 44; // safe top for iOS notch/dynamic island
+
+/* ── SpeedSlider ──────────────────────────────────────────────────────────── */
 function SpeedSlider({
   value, onChange, disabled,
 }: { value: number; onChange: (v: number) => void; disabled: boolean }) {
@@ -37,7 +39,7 @@ function SpeedSlider({
   }).current;
 
   const pct   = Math.min(1, value / MAX_SPD);
-  const color = rpmColor(value * 61.5); // roughly gear-6 RPM for color
+  const color = rpmColor(value * 61.5);
 
   return (
     <View
@@ -69,7 +71,7 @@ const sl = StyleSheet.create({
   },
 });
 
-/* ── ThrottleBar ─────────────────────────────────────────────────────────── */
+/* ── ThrottleBar ──────────────────────────────────────────────────────────── */
 function ThrottleBar({ value }: { value: number }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -92,7 +94,7 @@ const tb = StyleSheet.create({
   fill:  { height: '100%', borderRadius: 3 },
 });
 
-/* ── PulseDot ────────────────────────────────────────────────────────────── */
+/* ── PulseDot ─────────────────────────────────────────────────────────────── */
 function PulseDot({ on }: { on: boolean }) {
   const a = useRef(new Animated.Value(0.4)).current;
   useEffect(() => {
@@ -111,7 +113,7 @@ function PulseDot({ on }: { on: boolean }) {
   }} />;
 }
 
-/* ── Gear badge with shift direction indicator ───────────────────────────── */
+/* ── GearBadge ────────────────────────────────────────────────────────────── */
 function GearBadge({ gear, running, dir }: { gear: number; running: boolean; dir: 'up' | 'down' | null }) {
   const anim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -139,34 +141,45 @@ function GearBadge({ gear, running, dir }: { gear: number; running: boolean; dir
    Main App
 ═══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
-  const [running,       setRunning]       = useState(false);
-  const [ready,         setReady]         = useState(false);
-  const [samplesLoaded, setSamplesLoaded] = useState(false);
-  const [gpsSpd,        setGpsSpd]        = useState(0);
-  const [rpm,           setRpm]           = useState(RPM_IDLE);
-  const [gear,          setGear]          = useState(1);
-  const [throttle,      setThrottle]      = useState(0);
-  const [testMode,      setTestMode]      = useState(false);
-  const [testSpd,       setTestSpd]       = useState(0);
-  const [gearDir,       setGearDir]       = useState<'up' | 'down' | null>(null);
-  const [demoRunning,   setDemoRunning]   = useState(false);
+  const [running,     setRunning]     = useState(false);
+  const [ready,       setReady]       = useState(false);
+  const [gpsSpd,      setGpsSpd]      = useState(0);
+  const [rpm,         setRpm]         = useState(RPM_IDLE);
+  const [gear,        setGear]        = useState(1);
+  const [throttle,    setThrottle]    = useState(0);
+  const [testMode,    setTestMode]    = useState(false);
+  const [testSpd,     setTestSpd]     = useState(0);
+  const [gearDir,     setGearDir]     = useState<'up' | 'down' | null>(null);
+  const [demoRunning, setDemoRunning] = useState(false);
 
-  const wvRef       = useRef<WebView>(null);
-  const prevSpd     = useRef(0);
-  const smoothSpd   = useRef(0);
-  const prevGear    = useRef(1);
-  const locSub      = useRef<Location.LocationSubscription | null>(null);
-  const runningRef  = useRef(false);
-  const testRef     = useRef(false);
-  const demoTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wvRef        = useRef<WebView>(null);
+  const prevSpd      = useRef(0);
+  const smoothSpd    = useRef(0);
+  const prevGear     = useRef(1);
+  const locSub       = useRef<Location.LocationSubscription | null>(null);
+  const runningRef   = useRef(false);
+  const testRef      = useRef(false);
+  const demoTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const demoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const samplesSent = useRef(false);
 
   runningRef.current = running;
   testRef.current    = testMode;
 
-  const activeSpd    = testMode ? testSpd : gpsSpd;
-  const needleColor  = rpmColor(rpm);
+  const activeSpd   = testMode ? testSpd : gpsSpd;
+  const needleColor = rpmColor(rpm);
+
+  /* ── Background audio setup ─────────────────────────────────────────────── */
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      staysActiveInBackground: true,
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      interruptionModeIOS: 1,   // DoNotMix
+      shouldDuckAndroid: false,
+      interruptionModeAndroid: 1,
+      playThroughEarpieceAndroid: false,
+    }).catch(() => {});
+  }, []);
 
   /* ── Send message to WebView ────────────────────────────────────────────── */
   const sendAudio = useCallback((msg: object) => {
@@ -188,7 +201,6 @@ export default function App() {
       prevGear.current = g;
       setGear(g);
       setGearDir(dir);
-      // Clear the direction indicator after 600 ms
       setTimeout(() => setGearDir(null), 600);
       sendAudio({ type: dir === 'up' ? 'gearUp' : 'gearDown' });
     }
@@ -227,9 +239,7 @@ export default function App() {
     locSub.current = null;
   }, []);
 
-  /* ── Demo: idle 5 s → ramp 0→130 km/h over 20 s ─────────────────────────
-     Simulates a real drive: hear idle, all 6 gear shifts, then cruise.
-  ───────────────────────────────────────────────────────────────────────── */
+  /* ── Demo: idle 5 s → ramp 0→130 km/h ──────────────────────────────────── */
   const stopDemo = useCallback(() => {
     if (demoTimer.current)    { clearTimeout(demoTimer.current);    demoTimer.current   = null; }
     if (demoInterval.current) { clearInterval(demoInterval.current); demoInterval.current = null; }
@@ -241,24 +251,19 @@ export default function App() {
     stopDemo();
     setDemoRunning(true);
     prevSpd.current = 0;
-
-    // Phase 1: idle for 5 s (speed = 0)
     onSliderChange(0);
 
-    const RAMP_DURATION = 22000; // ms to go 0→130
+    const RAMP_DURATION = 22000;
     const TICK_MS = 80;
     const steps = RAMP_DURATION / TICK_MS;
     let step = 0;
 
     demoTimer.current = setTimeout(() => {
-      // Phase 2: ramp speed each tick
       demoInterval.current = setInterval(() => {
         step++;
         const spd = Math.round((step / steps) * MAX_SPD);
         onSliderChange(Math.min(spd, MAX_SPD));
-        if (spd >= MAX_SPD) {
-          stopDemo();
-        }
+        if (spd >= MAX_SPD) stopDemo();
       }, TICK_MS);
     }, 5000);
   }, [onSliderChange, stopDemo]);
@@ -295,39 +300,18 @@ export default function App() {
   const onMsg = useCallback((e: { nativeEvent: { data: string } }) => {
     try {
       const m = JSON.parse(e.nativeEvent.data);
-      switch (m.type) {
-        case 'ready':
-          // Send samples on first load; re-send if WebView reloaded
-          if (!samplesSent.current) {
-            samplesSent.current = true;
-            sendAudio({ type: 'init', samples: SPORT_SAMPLES });
-          } else {
-            // Reloaded — re-init
-            sendAudio({ type: 'init', samples: SPORT_SAMPLES });
-            setSamplesLoaded(false);
-          }
-          break;
-        case 'samplesReady':
-          setReady(true);
-          setSamplesLoaded(true);
-          break;
-        case 'decodeError':
-          console.warn('Sample decode error', m);
-          break;
-      }
+      if (m.type === 'ready') setReady(true);
     } catch {}
-  }, [sendAudio]);
+  }, []);
 
   const onWebViewLoadStart = useCallback(() => {
     setReady(false);
-    samplesSent.current = false;
   }, []);
 
   const onWebViewLoad = useCallback(() => {
     if (runningRef.current) stopEngine();
   }, [stopEngine]);
 
-  /* ── Clean up demo on unmount ───────────────────────────────────────────── */
   useEffect(() => () => stopDemo(), []); // eslint-disable-line
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -353,10 +337,12 @@ export default function App() {
         javaScriptEnabled
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback
+        allowsAirPlayForMediaPlayback={false}
         originWhitelist={['*']}
       />
 
-      <SafeAreaView style={s.safe}>
+      {/* Main content — plain View with explicit top padding, no SafeAreaView */}
+      <View style={s.safe}>
         <ScrollView
           style={s.scroll}
           contentContainerStyle={s.content}
@@ -426,7 +412,6 @@ export default function App() {
                 ))}
               </View>
 
-              {/* Auto-demo button */}
               <TouchableOpacity
                 style={[s.demoBtn, !running && { opacity: 0.35 },
                   demoRunning && s.demoBtnActive]}
@@ -492,9 +477,7 @@ export default function App() {
                 borderColor: running ? 'rgba(255,90,50,0.55)' : 'rgba(35,255,120,0.45)',
               }]} />
               <Text style={[s.engTxt, { color: running ? '#ff5533' : '#22ff88' }]}>
-                {!ready
-                  ? (samplesLoaded ? 'LOADING…' : 'LOADING SOUND…')
-                  : running ? '■  KILL ENGINE' : '▶  START ENGINE'}
+                {!ready ? 'LOADING…' : running ? '■  KILL ENGINE' : '▶  START ENGINE'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -505,23 +488,22 @@ export default function App() {
               : 'Start engine · drive and hear the GT-R respond to speed'}
           </Text>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
 
-/* ─── Styles ─────────────────────────────────────────────────────────────── */
+/* ─── Styles ──────────────────────────────────────────────────────────────── */
 const PAD = 18;
-const STATUS_H = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 28) : 0;
 
 const s = StyleSheet.create({
   root: {
-    flex: 1,
+    width: SCREEN_W,
+    height: SCREEN_H,
     backgroundColor: '#05050e',
   },
   safe: {
     flex: 1,
-    // On Android, push content below the translucent status bar
     paddingTop: STATUS_H,
   },
   scroll:  { flex: 1 },

@@ -9,13 +9,14 @@
       "backgroundColor": "#050510",
       "resizeMode": "contain"
     },
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.ev8.soundapp",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound.",
+        "UIBackgroundModes": ["audio", "location"]
       }
     },
     "android": {
@@ -25,7 +26,9 @@
       "package": "com.ev8.soundapp",
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "WAKE_LOCK"
       ]
     },
     "plugins": [
