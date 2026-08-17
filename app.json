@@ -1,41 +1,38 @@
 {
   "expo": {
     "name": "EV8",
-    "slug": "ev8-sound-app",
-    "version": "1.0.0",
+    "slug": "ev8",
+    "version": "2.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#050510",
-      "resizeMode": "contain"
-    },
-    "newArchEnabled": false,
+    "backgroundColor": "#05070C",
+    "scheme": "ev8",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.ev8.soundapp",
+      "bundleIdentifier": "com.ev8.enginesound",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "EV8 uses your location to measure speed and simulate engine sound.",
-        "UIBackgroundModes": ["audio", "location"]
+        "UIBackgroundModes": ["audio", "location"],
+        "NSLocationWhenInUseUsageDescription": "EV8 bruker posisjonen din til å måle farten, slik at motorlyden følger kjøringen.",
+        "NSMotionUsageDescription": "EV8 bruker bevegelsessensoren til å merke akselerasjon med én gang, i stedet for å vente på neste GPS-punkt."
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#050510"
-      },
-      "package": "com.ev8.soundapp",
+      "package": "com.ev8.enginesound",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": { "backgroundColor": "#05070C" },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "FOREGROUND_SERVICE",
-        "WAKE_LOCK"
+        "HIGH_SAMPLING_RATE_SENSORS",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE"
       ]
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "EV8 uses your location to detect speed for engine sound simulation."
+          "locationWhenInUsePermission": "EV8 bruker posisjonen din til å måle farten, slik at motorlyden følger kjøringen."
         }
       ]
     ]

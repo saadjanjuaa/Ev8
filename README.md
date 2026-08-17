@@ -1,75 +1,131 @@
-# Motorlyder for elbil-app 🚗💨
+# EV8 — V8-motorlyd for elbil
 
-18 sømløse motor-loops generert proseduralt — alle i samme "familie" så de
-crossfader pent sammen.
+Appen leser hvor fort og hvordan telefonen beveger seg, og lager en V8-motorlyd
+som følger kjøringen i sanntid. Koble telefonen til bilstereoen, trykk start, og
+kjør.
 
-## Hva du har fått
+Lyden er **ikke** lydfiler som spilles av eller pitches opp og ned. Den blir
+regnet ut fra bunnen av, sample for sample, ut fra hvordan en ekte V8 faktisk
+lager lyd. Det er derfor den kan gjøre ting samples ikke kan: legge seg presis
+på turtallet, endre karakter når du slipper gassen, spraking på motorbrems og
+smell i girskiftene — uten sømmer eller loop-punkter.
 
-Tre komplette sett, hvert med 6 RPM-nivåer (800, 1500, 2500, 4000, 6000, 8000):
+## Slik høres det ut
 
-- **`sport_*.wav`** — Sportsbil-aktig, lys og aggressiv
-- **`muscle_*.wav`** — V8-aktig, dyp og rumlende
-- **`ev_*.wav`** — Futuristisk elbil-sound (jetlignende, ingen forbrenning)
+| | |
+|---|---|
+| **Tomgang** | Ujevn, lopete rumling. Kommer av at en crossplane-V8 fyrer ujevnt per sylinderbank (270-180-90-180 veivgrader) |
+| **Akselerasjon** | Gasspådraget leses ut av hvordan bilen faktisk akselererer. Mer gass = kraftigere forbrenning, mer rasp, åpnere potte |
+| **Girskift opp** | Tenningskutt, «bark» i eksosen, 1–3 smell, turtallet faller gjennom giret |
+| **Girskift ned** | Mellomgass som rev-matcher, ofte med et smell |
+| **Motorbrems** | Forbrenningen dør ut, du hører pumpingen i motoren, og uforbrent drivstoff smeller i eksosen |
+| **Turtallssperre** | Hakkende tenningskutt mot sperren |
+| **Start / stopp** | Startmotor som drar rundt, motoren tar tak og flarer, og dør ut når du slår av |
 
-Alle filer er:
-- 44.1 kHz, 16-bit, mono WAV
-- ~2 sekunder lange
-- **Sømløse loops** (lengden er justert til hele motorsykluser)
-- Lisensfri (jeg genererte dem til deg her og nå)
+## Motorer
 
-## Hvordan bruke i appen
+* **MUSCLE V8** — 6,2 l crossplane, rette rør. Dyp, lopete, mye smell.
+* **TRACK V8** — 4,5 l flatplane opp til 8600. Eksotisk hyl i stedet for rumling.
+* **BLOWN V8** — crossplane med kompressorhyl.
 
-### 1. Mapping fart → RPM
-Bestem hvilken fart som tilsvarer hvilket "RPM":
-```
-0 km/t  → 800 RPM   (idle)
-30 km/t → 2500 RPM
-60 km/t → 4000 RPM
-100 km/t → 6000 RPM
-130+ km/t → 8000 RPM
-```
+Bytt i innstillingene (tannhjulet oppe til høyre).
 
-### 2. Crossfade mellom de to nærmeste loopene
-Eksempel: bilen kjører på "3000 simulert RPM"
-- Spill `sport_2500rpm.wav` med volum 67%, pitch +5%
-- Spill `sport_4000rpm.wav` med volum 33%, pitch -8%
-- Begge looper kontinuerlig, du justerer bare volum + pitch i sanntid
+## Kom i gang
 
-### 3. Pseudo-kode
-```javascript
-function updateEngineSound(speed_kmh) {
-  const rpm = mapSpeedToRpm(speed_kmh);
-  const [lower, upper] = findNearestSamples(rpm); // f.eks. 2500 og 4000
-  
-  // Hvor langt vi er mellom de to (0.0 - 1.0)
-  const t = (rpm - lower.rpm) / (upper.rpm - lower.rpm);
-  
-  // Volum: kryssfade
-  lower.gain = 1.0 - t;
-  upper.gain = t;
-  
-  // Pitch: juster så hver loop "treffer" riktig RPM
-  lower.playbackRate = rpm / lower.rpm;
-  upper.playbackRate = rpm / upper.rpm;
-}
+```bash
+npm install
+npx expo start
 ```
 
-## Anbefalt for elbil-app: bruk `ev_*` sett som base
+Skann QR-koden med Expo Go. Alt som brukes ligger i Expo Go, så du trenger ikke
+bygge appen selv for å prøve den.
 
-EV-settet er designet for elbiler — ren, futuristisk, uten forbrennings-pulsering.
-Du kan legge `sport_*` på toppen som et ekstra lag når brukeren akselererer hardt
-for å gi det litt "ekstra".
+I bilen:
 
-## Hvis lyden fortsatt ikke er bra nok
+1. Koble telefonen til stereoen (AUX eller Bluetooth).
+2. Trykk **START MOTOR** og godta posisjonstilgang.
+3. Kjør. De første gangene du akselererer kalibrerer appen seg (se under).
 
-Disse er prosedurale (syntetiske) — de er gode for prototyping og helt OK i en
-ferdig app, men hvis du vil ha *ekte* opptak:
+Vil du høre på lyden mens du står stille: skru på **DEMOMODUS** i innstillingene
+og dra i fartsbryteren.
 
-1. **Freesound.org** — søk "engine loop", filtrer på CC0
-2. **FMOD Studio** (gratis indie) — bygg engine-systemet visuelt
-3. **Boom Library** — kommersielle pakker av profesjonell kvalitet (~$100+)
+## Hvordan det virker
 
-## Tips for Claude Code
+### Lyden
 
-Når du jobber med Claude Code i appen din, gi den denne README-filen som kontekst.
-Da skjønner den strukturen og kan bygge crossfade-logikken riktig på første forsøk.
+`src/audio/engineCore.ts` er hele motoren, skrevet som ren DSP-kode som kjører i
+en `AudioWorkletProcessor` — altså på lydtråden, ikke på UI-tråden. Den kan
+derfor ikke hakke selv om skjermen tegner opp eller React rerenderer.
+
+Per sample:
+
+1. **Veivakselen** dreier videre ut fra turtallet, målt i grader — ikke sekunder.
+2. **Åtte sylindre** fyrer hver 90. grad i riktig tenningsrekkefølge
+   (1-8-4-3-6-5-7-2). Hvilken bank hver tenning tilhører er hele forskjellen på
+   amerikansk rumling og italiensk hyl, og er ett felt i profilen.
+3. **Forbrenningspulsen** modelleres i veivgrader: en skarp trykkbølge når
+   eksosventilen åpner, så pumpestrøm resten av eksostakten, pluss turbulensstøy
+   som følger gjennomstrømningen. Fordi pulsen er definert i grader blir den
+   automatisk kortere og hardere når turtallet stiger, akkurat som i virkeligheten.
+4. **Eksosanlegget** er en bølgeleder: ett header-rør per bank, H-rør mellom
+   dem, doble midtrør, potte med diffusjon, og enderør. Refleksjonene i rørene
+   lager resonansene — de er ikke lagt på som EQ etterpå.
+5. **Smell** mates inn i *begynnelsen* av røret, ikke på utgangen, slik at de
+   arver rørets klang i stedet for å ligge oppå som en effekt.
+6. Til slutt metning, kupé-filter og limiter.
+
+Ingen sylinder er helt lik: hver har et fast avvik, og amplitude, brennhastighet
+og tenningstidspunkt varierer litt fra syklus til syklus. Det er dette som gjør
+at det ikke blir stående som en synth-tone.
+
+Girkassen ligger også inne i lydtråden, med clutch som slurer ved igangkjøring,
+automatiske girskift som flytter seg etter hvor hardt du kjører, og
+turtallssperre.
+
+### Farten
+
+`src/sensors/useVehicleSpeed.ts`. GPS alene oppdaterer omtrent én gang i
+sekundet — da ville lyden ligget et helt sekund bak gassfoten. Derfor:
+
+* Akselerometeret (50 Hz) integreres opp og gir umiddelbar respons.
+* GPS korrigerer bort driften.
+
+Telefonen kan ligge hvordan som helst, så appen finner selv ut hvilken vei som
+er framover: tyngdekraften gir «ned», og framoverretningen læres opp ved å se
+hvilken vei akselerometeret peker akkurat når GPS melder at farten øker. Prikken
+ved siden av GPS-statusen blir grønn når retningen sitter.
+
+### Prosjektstruktur
+
+```
+src/audio/engineCore.ts    motoren + eksosanlegget + girkassen (DSP)
+src/audio/engineHtml.ts    lydverten: AudioWorklet, med ScriptProcessor i reserve
+src/audio/EngineAudio.tsx  broen mellom React Native og lydtråden
+src/audio/profiles.ts      de tre motorene, som fysiske beskrivelser
+src/sensors/               GPS + akselerometer-fusjon
+src/ui/                    glassmorfisme-komponenter og turtelleren
+src/screens/DriveScreen.tsx
+```
+
+## Justere lyden
+
+Alt i `profiles.ts` er fysiske størrelser, så det er ganske intuitivt å skru på:
+
+| Felt | Betydning |
+|---|---|
+| `headerLen`, `midLen` | rørlengder i meter — lengre rør gir dypere brøl |
+| `reflection` | hvor mye som reflekteres tilbake i røret — mer = mer rørklang |
+| `muffler` | 0 er rett rør, 1 er stille |
+| `damping` | hvor mye høyfrekvens røret spiser |
+| `growl`, `rasp` | dB på bunn og på raspen i midten |
+| `popRate`, `popGain` | hvor ofte og hvor hardt det smeller |
+| `idleLope`, `combVar` | hvor ujevn motoren går |
+| `banks` | tenningsrekkefølgens bankmønster (crossplane vs. flatplane) |
+| `shiftUpLow/High` | girpunkt ved henholdsvis null og full gass |
+
+## Merk
+
+* Lyden fortsetter i bakgrunnen, og skjermen holdes våken mens motoren går.
+* Appen støyer ikke ut andre lydkilder — navigasjon og musikk kan spille samtidig.
+* Batteribruken er merkbar: GPS på full nøyaktighet pluss skjerm som står på.
+  Ha telefonen i lader på lengre turer.
