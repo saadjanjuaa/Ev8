@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#07080C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EV8">
+<title>EV8 Motorlyd</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Semi+Condensed:wght@500;600;700;800&display=swap">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   EV8 — instrumentpanel.
+
+   Bevisst ett tema. Et instrumentpanel i en bil ER et mørkt objekt;
+   en lys variant ville vært feil for motivet. Alle farger males
+   eksplisitt, så siden holder uansett hva den ligger oppå.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --ground: #07080C;          /* nær-svart med et blåstikk — valgt, ikke arvet */
+  --ground-lift: #0C0F16;
+  --panel: rgba(255,255,255,0.045);
+  --panel-hi: rgba(255,255,255,0.085);
+  --line: rgba(255,255,255,0.12);
+  --line-hi: rgba(255,255,255,0.26);
+  --ink: #EDF1F8;
+  --ink-dim: #79839A;         /* kjølig grå, samme temperatur som grunnen */
+  --ink-faint: rgba(255,255,255,0.30);
+  --red: #FF4438;
+  --green: #3DDC84;
+  --amber: #F5A623;
+  --accent: #FF7A2F;          /* settes av motorvalget */
+  --glow: 0;                  /* 0–1, følger turtallet */
+
+  --display: "Saira Semi Condensed", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  overscroll-behavior: none;
+}
+body { overflow: hidden; }
+
+/* atmosfære: glød bak turtelleren som puster med turtallet */
+.aura {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(58vh 58vh at 50% 34%,
+      color-mix(in srgb, var(--accent) calc(9% + var(--glow) * 20%), transparent) 0%,
+      transparent 68%),
+    linear-gradient(180deg, #04050A 0%, var(--ground) 42%, var(--ground-lift) 100%);
+  transition: background 220ms linear;
+}
+
+.shell {
+  position: relative; z-index: 1;
+  height: 100%; max-width: 460px; margin: 0 auto;
+  display: flex; flex-direction: column;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 14px)
+    16px
+    calc(env(safe-area-inset-bottom, 0px) + 14px);
+  gap: 12px;
+}
+
+/* ── topplinje ── */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mark {
+  font-family: var(--display); font-weight: 800; font-size: 27px;
+  letter-spacing: .10em; line-height: 1; margin: 0;
+}
+.mark b { color: var(--accent); font-weight: 800; }
+.sub {
+  margin: 4px 0 0; font-size: 10px; font-weight: 500;
+  letter-spacing: .11em; text-transform: uppercase; color: var(--ink-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.head > div:first-child { min-width: 0; }
+.head-right { display: flex; align-items: center; gap: 9px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: 10px; font-weight: 600; letter-spacing: .10em;
+  text-transform: uppercase; color: var(--ink-dim); white-space: nowrap;
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-dim); flex: none; }
+
+.icon-btn {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--line);
+  color: var(--ink-dim); font-size: 15px; line-height: 1;
+  display: grid; place-items: center; cursor: pointer;
+}
+.icon-btn:active { background: var(--panel-hi); }
+
+/* ── turtelleren: sidens hovedobjekt ── */
+.gauge-wrap {
+  flex: 1; min-height: 0;
+  display: grid; place-items: center;
+  position: relative;
+}
+.gauge { position: relative; }
+.gauge svg { display: block; }
+
+.gauge-face {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.gear {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(50px, 15vw, 76px); line-height: .9;
+  color: var(--accent); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.rpm {
+  font-family: var(--display); font-weight: 700; font-size: 27px;
+  font-variant-numeric: tabular-nums; letter-spacing: .01em;
+  margin-top: 6px;
+}
+.rpm-unit {
+  font-size: 9px; font-weight: 600; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--ink-dim); margin-top: 4px;
+}
+
+/* girskift-blink: kransen lyser opp et øyeblikk */
+.flare {
+  position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid var(--accent); opacity: 0; pointer-events: none;
+}
+.flare.on { animation: flare 340ms ease-out; }
+@keyframes flare {
+  0%   { opacity: .85; transform: scale(1); }
+  100% { opacity: 0;   transform: scale(1.045); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flare.on { animation: none; }
+  .aura { transition: none; }
+}
+
+/* ── datastripe ── */
+.strip { display: grid; grid-template-columns: 122px 1fr; gap: 11px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 13px 15px;
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  position: relative; overflow: hidden;
+}
+/* lyskant øverst = glassfølelsen */
+.card::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,0) 46%, rgba(0,0,0,.14));
+  pointer-events: none;
+}
+.card > * { position: relative; }
+
+.label {
+  font-size: 10px; font-weight: 600; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.speed-row { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
+.speed {
+  font-family: var(--display); font-weight: 800; font-size: 42px; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.03em;
+}
+.speed-unit { font-size: 11.5px; font-weight: 500; color: var(--ink-dim); }
+
+.meter { margin-top: 0; }
+.meter + .meter { margin-top: 13px; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+.meter-val {
+  font-family: var(--display); font-weight: 700; font-size: 11.5px;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.track {
+  height: 7px; border-radius: 4px; overflow: hidden;
+  background: rgba(255,255,255,.08);
+}
+.fill {
+  height: 100%; width: 0%; border-radius: 4px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 45%, transparent), var(--accent));
+  transition: width 90ms linear;
+}
+
+/* ── knapper ── */
+.btn {
+  width: 100%; border-radius: 16px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink-dim);
+  font-family: var(--body); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .13em; text-transform: uppercase;
+  height: 46px; display: flex; align-items: center; justify-content: center; gap: 9px;
+  cursor: pointer;
+}
+.btn:active { transform: scale(.99); }
+.btn.armed { border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+             background: color-mix(in srgb, var(--accent) 13%, transparent);
+             color: var(--accent); }
+.btn .lamp {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  background: transparent;
+}
+.btn.armed .lamp { background: var(--accent); }
+
+.btn-power {
+  height: 58px; border-radius: 18px; font-size: 13px; font-weight: 600;
+  letter-spacing: .16em;
+  background: linear-gradient(135deg, var(--accent),
+              color-mix(in srgb, var(--accent) 58%, #000));
+  border-color: var(--accent); color: #07080C;
+}
+.btn-power.running {
+  background: var(--panel); border-color: var(--line); color: var(--ink);
+}
+
+.foot {
+  font-size: 9.5px; letter-spacing: .08em; color: var(--ink-faint);
+  text-align: center; min-height: 12px;
+}
+.foot.warn { color: var(--amber); }
+
+/* ── innstillinger ── */
+.sheet-bg {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(2,3,6,.62);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: none;
+}
+.sheet-bg.open { display: block; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 86%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: rgba(14,17,24,.92);
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  border-top: 1px solid var(--line);
+  border-radius: 26px 26px 0 0;
+  padding: 14px 20px calc(env(safe-area-inset-bottom, 0px) + 22px);
+  max-width: 460px; margin: 0 auto;
+}
+.grip { width: 38px; height: 4px; border-radius: 2px; background: var(--line-hi); margin: 0 auto 18px; }
+.sec { margin-top: 22px; }
+.sec:first-of-type { margin-top: 4px; }
+.sec > .label { display: block; margin-bottom: 11px; }
+
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.chip {
+  padding: 12px 6px; border-radius: 14px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line);
+  color: var(--ink-dim); text-align: center;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+}
+.chip.on { color: var(--chip); border-color: color-mix(in srgb, var(--chip) 75%, transparent);
+           background: color-mix(in srgb, var(--chip) 14%, transparent); }
+
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 30px; background: transparent; cursor: pointer;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px; background: rgba(255,255,255,.14);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); margin-top: -8.5px;
+  border: 2px solid var(--ground);
+}
+input[type=range]::-moz-range-track { height: 5px; border-radius: 3px; background: rgba(255,255,255,.14); }
+input[type=range]::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--ground);
+  background: var(--accent);
+}
+
+.scale { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
+.scale span { font-size: 9px; font-weight: 600; letter-spacing: .12em;
+              text-transform: uppercase; color: var(--ink-faint); }
+.scale b { font-family: var(--display); font-weight: 700; font-size: 10.5px;
+           color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+.hint { font-size: 11.5px; line-height: 1.45; color: var(--ink-faint); margin: 9px 0 0; }
+
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; }
+.switch { width: 42px; height: 24px; border-radius: 12px; background: rgba(255,255,255,.11);
+          padding: 2px; flex: none; transition: background 140ms; }
+.switch i { display: block; width: 20px; height: 20px; border-radius: 50%;
+            background: rgba(255,255,255,.55); transition: transform 140ms, background 140ms; }
+.switch.on { background: color-mix(in srgb, var(--accent) 42%, transparent); }
+.switch.on i { transform: translateX(18px); background: var(--accent); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* romsligere på store skjermer */
+@media (min-height: 780px) {
+  .shell { gap: 16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="aura"></div>
+
+<main class="shell">
+  <header class="head">
+    <div>
+      <h1 class="mark">EV<b>8</b></h1>
+      <p class="sub" id="tagline">6,2 L crossplane · rette rør</p>
+    </div>
+    <div class="head-right">
+      <span class="pill"><i class="dot" id="statusDot"></i><span id="statusText">Klar</span></span>
+      <button class="icon-btn" id="openSettings" aria-label="Innstillinger">⚙</button>
+    </div>
+  </header>
+
+  <section class="gauge-wrap">
+    <div class="gauge" id="gauge">
+      <svg id="ring" width="300" height="300" viewBox="0 0 300 300" aria-hidden="true"></svg>
+      <div class="flare" id="flare"></div>
+      <div class="gauge-face">
+        <div class="gear" id="gear">–</div>
+        <div class="rpm" id="rpm">0</div>
+        <div class="rpm-unit">omdr/min</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="card">
+      <span class="label">Fart</span>
+      <div class="speed-row">
+        <span class="speed" id="kmh">0</span><span class="speed-unit">km/t</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="meter">
+        <div class="meter-head"><span class="label">Gass</span><span class="meter-val" id="thrVal">0 %</span></div>
+        <div class="track"><div class="fill" id="thrFill"></div></div>
+      </div>
+      <div class="meter">
+        <div class="meter-head"><span class="label">Belastning</span><span class="meter-val" id="gearVal">—</span></div>
+        <div class="track"><div class="fill" id="loadFill"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <button class="btn" id="testBtn"><i class="lamp"></i><span id="testLabel">Testkjøring 0–50 halv · 50–100 full</span></button>
+  <button class="btn btn-power" id="powerBtn">Start motor</button>
+  <p class="foot" id="foot">Trykk start — motoren dras rundt og tar tak.</p>
+</main>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet" id="sheet" role="dialog" aria-label="Innstillinger">
+    <div class="grip"></div>
+
+    <div class="sec">
+      <span class="label">Motor</span>
+      <div class="chips" id="chips"></div>
+      <p class="hint" id="engineHint"></p>
+    </div>
+
+    <div class="sec">
+      <span class="label">Volum</span>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.85">
+    </div>
+
+    <div class="sec">
+      <span class="label">Lydbilde</span>
+      <input type="range" id="cabin" min="0" max="1" step="0.01" value="0.55">
+      <div class="scale">
+        <span>Utenfor bilen</span><b id="cabinVal">45 / 55</b><span>I kupéen</span>
+      </div>
+      <p class="hint">To mikrofoner spilles samtidig, ikke enten eller. Utsiden gir
+        anslag og smell, kupéen gir tyngde i bunnen. Midt på får du begge deler.</p>
+    </div>
+
+    <div class="sec">
+      <div class="switch-row" id="demoRow">
+        <span class="label">Demomodus (uten GPS)</span>
+        <span class="switch" id="demoSwitch"><i></i></span>
+      </div>
+      <div id="demoWrap" style="display:none; margin-top:14px;">
+        <input type="range" id="demoSpeed" min="0" max="150" step="1" value="0">
+        <div class="scale"><span>0</span><b id="demoVal">0 km/t</b><span>150</span></div>
+      </div>
+      <p class="hint">Styr farten med skyvebryteren for å høre lyden mens du står stille.</p>
+    </div>
+
+    <div class="sec">
+      <button class="btn" id="closeSheet">Lukk</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   Motoren og bildataene settes inn her av scripts/build-web.mjs.
+   Nøyaktig samme kildekode som React Native-appen bruker, slik at
+   nettversjonen og appen aldri kan drifte fra hverandre.
+   ═══════════════════════════════════════════════════════════════ */
+/*__EV8_ENGINE__*/
+/*__EV8_DATA__*/
+
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var clamp = function (v, a, b) { return v < a ? a : (v > b ? b : v); };
+
+  /* ─────────────── tilstand ─────────────── */
+  var profile = PROFILES[0];
+  var volume = 0.85, cabin = 0.55;
+  var demo = false, demoKmh = 0, demoPrev = 0;
+  var running = false, audioMode = null;
+  var test = null;
+  var latest = null;
+
+  /* ═══════════════ lydmotor ═══════════════ */
+  var ctx = null, node = null, core = null, mode = 'none';
+
+  function workletSource() {
+    return ENGINE_CORE_SRC + '\n' +
+      'class EngineProcessor extends AudioWorkletProcessor {' +
+      '  constructor(){ super(); this.core = createEngineCore(sampleRate); this.acc = 0;' +
+      '    this.port.onmessage = (e) => this.handle(e.data); }' +
+      '  handle(m){ if(!m) return;' +
+      '    if(m.t==="input") this.core.setInput(m.s, m.a);' +
+      '    else if(m.t==="profile") this.core.setProfile(m.p);' +
+      '    else if(m.t==="start") this.core.start();' +
+      '    else if(m.t==="stop") this.core.stop(); }' +
+      '  process(inputs, outputs){ var o = outputs[0];' +
+      '    if(!o || o.length < 2) return true;' +
+      '    this.core.render(o[0], o[1], o[0].length);' +
+      '    this.acc += o[0].length;' +
+      '    if(this.acc >= 2048){ this.acc = 0; this.port.postMessage(this.core.snapshot()); }' +
+      '    return true; }' +
+      '}' +
+      'registerProcessor("ev8-engine", EngineProcessor);';
+  }
+
+  function buildAudio() {
+    if (ctx) return Promise.resolve();
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return Promise.reject(new Error('Nettleseren mangler Web Audio.'));
+    ctx = new AC({ latencyHint: 'interactive' });
+
+    if (!(ctx.audioWorklet && window.AudioWorkletNode)) return buildFallback();
+
+    var src = workletSource();
+
+    /* Ulike nettlesere godtar ulike URL-former for addModule. */
+    function attempt(makers, i) {
+      if (i >= makers.length) return Promise.reject(new Error('ingen URL-form virket'));
+      var u;
+      try { u = makers[i](); } catch (e) { return attempt(makers, i + 1); }
+      return ctx.audioWorklet.addModule(u).then(
+        function () { return u; },
+        function () { return attempt(makers, i + 1); }
+      );
+    }
+
+    return attempt([
+      function () { return URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); },
+      function () { return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(src); }
+    ], 0).then(function (url) {
+      try { if (url.indexOf('blob:') === 0) URL.revokeObjectURL(url); } catch (e) { }
+      node = new AudioWorkletNode(ctx, 'ev8-engine', {
+        numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2]
+      });
+      node.port.onmessage = function (e) { latest = e.data; };
+      node.connect(ctx.destination);
+      mode = 'worklet';
+      audioMode = 'lydtråd';
+      pushProfile();
+    }).catch(function () {
+      if (mode === 'worklet') return;
+      return buildFallback();
+    });
+  }
+
+  function buildFallback() {
+    core = createEngineCore(ctx.sampleRate);
+    var maker = ctx.createScriptProcessor || ctx.createJavaScriptNode;
+    var sp;
+    try { sp = maker.call(ctx, 2048, 0, 2); }
+    catch (e) { sp = maker.call(ctx, 2048, 1, 2); }
+    var acc = 0;
+    sp.onaudioprocess = function (ev) {
+      var b = ev.outputBuffer;
+      core.render(b.getChannelData(0), b.getChannelData(1), b.length);
+      acc += b.length;
+      if (acc >= 2048) { acc = 0; latest = core.snapshot(); }
+    };
+    sp.connect(ctx.destination);
+    node = sp; mode = 'script'; audioMode = 'reservemodus';
+    pushProfile();
+    return Promise.resolve();
+  }
+
+  function send(m) {
+    if (mode === 'worklet' && node) node.port.postMessage(m);
+    else if (mode === 'script' && core) {
+      if (m.t === 'input') core.setInput(m.s, m.a);
+      else if (m.t === 'profile') core.setProfile(m.p);
+      else if (m.t === 'start') core.start();
+      else if (m.t === 'stop') core.stop();
+    }
+  }
+
+  function pushProfile() {
+    var dsp = {};
+    for (var k in profile.dsp) dsp[k] = profile.dsp[k];
+    dsp.volume = volume;
+    dsp.cabin = cabin;
+    send({ t: 'profile', p: dsp });
+  }
+
+  /* ═══════════════ fart fra telefonen ═══════════════
+     Samme fusjon som appen: akselerometeret gir responsen,
+     GPS korrigerer driften, og framoverretningen læres opp
+     ved å se hvilken vei sensoren peker når GPS melder at
+     farten øker. Da kan telefonen ligge hvordan som helst. */
+  var S = {
+    v: 0, aLong: 0, aBias: 0,
+    fwd: [0, 0, 0], fwdMag: 0,
+    grav: [0, 0, -9.81], gravInit: false,
+    lastMotion: 0, lastFix: 0,
+    gpsSpeed: 0, gpsPrev: 0, gpsAccel: 0,
+    accuracy: 0, hasFix: false,
+    permission: 'ukjent', motionOn: false
+  };
+
+  function onMotion(d) {
+    var now = Date.now();
+    var dt = S.lastMotion ? Math.min((now - S.lastMotion) / 1000, 0.15) : 0.02;
+    S.lastMotion = now;
+    if (dt <= 0) return;
+
+    var wg = d.accelerationIncludingGravity;
+    if (!wg) return;
+    var gx = wg.x || 0, gy = wg.y || 0, gz = wg.z || 0;
+
+    var g = S.grav;
+    if (!S.gravInit) { g[0] = gx; g[1] = gy; g[2] = gz; S.gravInit = true; }
+    else {
+      var k = Math.min(dt * 0.6, 1);
+      g[0] += (gx - g[0]) * k; g[1] += (gy - g[1]) * k; g[2] += (gz - g[2]) * k;
+    }
+
+    var lx, ly, lz, lin = d.acceleration;
+    if (lin && typeof lin.x === 'number') { lx = lin.x; ly = lin.y; lz = lin.z || 0; }
+    else { lx = gx - g[0]; ly = gy - g[1]; lz = gz - g[2]; }
+
+    var gm = Math.sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) || 9.81;
+    var ux = g[0] / gm, uy = g[1] / gm, uz = g[2] / gm;
+    var dot = lx * ux + ly * uy + lz * uz;
+    var hx = lx - dot * ux, hy = ly - dot * uy, hz = lz - dot * uz;
+
+    if (Math.abs(S.gpsAccel) > 0.45) {
+      var sgn = S.gpsAccel > 0 ? 1 : -1, kk = Math.min(dt * 0.9, 0.2);
+      S.fwd[0] += (hx * sgn - S.fwd[0]) * kk;
+      S.fwd[1] += (hy * sgn - S.fwd[1]) * kk;
+      S.fwd[2] += (hz * sgn - S.fwd[2]) * kk;
+    }
+    var fm = Math.sqrt(S.fwd[0] * S.fwd[0] + S.fwd[1] * S.fwd[1] + S.fwd[2] * S.fwd[2]);
+    S.fwdMag = fm;
+
+    var aLong = fm > 0.12
+      ? (hx * S.fwd[0] + hy * S.fwd[1] + hz * S.fwd[2]) / fm
+      : S.gpsAccel;
+
+    S.aBias += (aLong - S.aBias) * Math.min(dt * 0.08, 0.02);
+    S.aLong += ((aLong - S.aBias) - S.aLong) * Math.min(dt * 12, 1);
+
+    var fixAge = (now - S.lastFix) / 1000;
+    var trust = (fm > 0.12 && fixAge < 6) ? 1 : 0.25;
+    S.v += S.aLong * dt * trust;
+
+    if (S.lastFix) {
+      var pull = Math.min(dt * (0.9 + fixAge * 1.6), 0.4);
+      S.v += (S.gpsSpeed - S.v) * pull;
+    }
+    S.v = clamp(S.v, 0, 120);
+    if (S.gpsSpeed < 0.6 && Math.abs(S.aLong) < 0.5) S.v += (0 - S.v) * Math.min(dt * 3, 1);
+    S.hasFix = fixAge < 6;
+  }
+
+  function onFix(pos) {
+    var now = Date.now();
+    var dt = S.lastFix ? Math.max((now - S.lastFix) / 1000, 0.05) : 1;
+    S.lastFix = now;
+    var raw = pos.coords.speed;
+    var v = (raw !== null && raw >= 0) ? raw : 0;
+    S.gpsAccel = (v - S.gpsPrev) / dt;
+    S.gpsPrev = v; S.gpsSpeed = v;
+    S.accuracy = Math.round(pos.coords.accuracy || 0);
+    S.hasFix = true;
+    S.permission = 'gitt';
+    if (!S.lastMotion) { S.v += (v - S.v) * 0.5; S.aLong = S.gpsAccel; }
+  }
+
+  function startSensors() {
+    /* iOS krever eksplisitt samtykke til bevegelsessensoren,
+       og det må skje fra et trykk. Derfor kalles dette fra startknappen. */
+    var DME = window.DeviceMotionEvent;
+    if (DME && typeof DME.requestPermission === 'function') {
+      DME.requestPermission().then(function (r) {
+        if (r === 'granted') { window.addEventListener('devicemotion', onMotion); S.motionOn = true; }
+      }).catch(function () { });
+    } else if (DME) {
+      window.addEventListener('devicemotion', onMotion); S.motionOn = true;
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(onFix, function (err) {
+        S.permission = err.code === 1 ? 'nektet' : 'feil';
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    } else {
+      S.permission = 'mangler';
+    }
+  }
+
+  /* hold skjermen våken i bilen */
+  var wakeLock = null;
+  function keepAwake(on) {
+    if (!navigator.wakeLock) return;
+    if (on) {
+      navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }).catch(function () { });
+    } else if (wakeLock) { try { wakeLock.release(); } catch (e) { } wakeLock = null; }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      if (running) keepAwake(true);
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+    }
+  });
+
+  /* ═══════════════ turtelleren ═══════════════ */
+  var SEG = 58, START = 148, SWEEP = 244, SIZE = 300;
+  var segEls = [], labelEls = [], litNow = -1;
+
+  function buildRing() {
+    var svg = $('ring');
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    segEls = [];
+    var NS = 'http://www.w3.org/2000/svg';
+    var cx = SIZE / 2, cy = SIZE / 2, rOut = SIZE / 2 - 6, rIn = rOut - SIZE * 0.085;
+
+    var inner = document.createElementNS(NS, 'circle');
+    inner.setAttribute('cx', cx); inner.setAttribute('cy', cy);
+    inner.setAttribute('r', rIn - SIZE * 0.028);
+    inner.setAttribute('fill', 'none');
+    inner.setAttribute('stroke', 'rgba(255,255,255,.07)');
+    svg.appendChild(inner);
+
+    for (var i = 0; i < SEG; i++) {
+      var f = i / (SEG - 1);
+      var a = (START + f * SWEEP) * Math.PI / 180;
+      var c = Math.cos(a), s = Math.sin(a);
+      var l = document.createElementNS(NS, 'line');
+      l.setAttribute('x1', (cx + c * rIn).toFixed(2));
+      l.setAttribute('y1', (cy + s * rIn).toFixed(2));
+      l.setAttribute('x2', (cx + c * rOut).toFixed(2));
+      l.setAttribute('y2', (cy + s * rOut).toFixed(2));
+      l.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(l);
+      segEls.push(l);
+    }
+
+    var step = profile.redlineRpm > 7000 ? 2000 : 1000;
+    for (var r = 0; r <= profile.redlineRpm; r += step) {
+      var ff = r / profile.redlineRpm;
+      var aa = (START + ff * SWEEP) * Math.PI / 180;
+      var rr = rIn - SIZE * 0.075;
+      var t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', (cx + Math.cos(aa) * rr).toFixed(1));
+      t.setAttribute('y', (cy + Math.sin(aa) * rr + SIZE * 0.018).toFixed(1));
+      t.setAttribute('fill', 'rgba(255,255,255,.34)');
+      t.setAttribute('font-size', SIZE * 0.042);
+      t.setAttribute('font-weight', '600');
+      t.setAttribute('font-family', 'Saira Semi Condensed, sans-serif');
+      t.setAttribute('text-anchor', 'middle');
+      t.textContent = String(r / 1000);
+      svg.appendChild(t);
+    }
+    litNow = -1;
+    paintRing(0);
+  }
+
+  function mixHex(a, b, t) {
+    function h(c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
+    var A = h(a), B = h(b), k = clamp(t, 0, 1);
+    return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * k) + ',' +
+      Math.round(A[1] + (B[1] - A[1]) * k) + ',' +
+      Math.round(A[2] + (B[2] - A[2]) * k) + ')';
+  }
+
+  function paintRing(lit) {
+    if (lit === litNow) return;
+    litNow = lit;
+    var redFrom = Math.round((profile.dsp.limitRpm / profile.redlineRpm) * SEG);
+    for (var i = 0; i < SEG; i++) {
+      var on = i < lit, red = i >= redFrom, f = i / (SEG - 1);
+      var el = segEls[i];
+      if (on) {
+        el.setAttribute('stroke', red ? '#FF3B2F' : mixHex('#6FE3FF', profile.accent, Math.min(f / 0.72, 1)));
+        el.setAttribute('stroke-width', red ? SIZE * 0.019 : SIZE * 0.016);
+      } else {
+        el.setAttribute('stroke', red ? 'rgba(255,59,47,.22)' : 'rgba(255,255,255,.16)');
+        el.setAttribute('stroke-width', SIZE * 0.011);
+      }
+    }
+  }
+
+  function sizeGauge() {
+    var wrap = document.querySelector('.gauge-wrap');
+    var s = Math.max(180, Math.min(372, Math.min(wrap.clientWidth, wrap.clientHeight) - 4));
+    var g = $('gauge');
+    g.style.width = s + 'px'; g.style.height = s + 'px';
+    var svg = $('ring');
+    svg.setAttribute('width', s); svg.setAttribute('height', s);
+  }
+  window.addEventListener('resize', sizeGauge);
+
+  /* ═══════════════ oppdateringssløyfe ═══════════════ */
+  var lastFeed = 0, lastUi = 0, lastTestPhase = null;
+
+  function loop(ts) {
+    requestAnimationFrame(loop);
+
+    /* mating: 25 Hz */
+    if (running && ts - lastFeed > 40) {
+      lastFeed = ts;
+      if (test) {
+        var tick = stepTestRun(test, 0.04, latest && latest.state === 2);
+        send({ t: 'input', s: tick.speed, a: tick.accel });
+        if (test.phase !== lastTestPhase) {
+          lastTestPhase = test.phase;
+          $('testLabel').textContent = TEST_LABELS[test.phase];
+        }
+        if (tick.done) { stopTest(); }
+      } else if (demo) {
+        var ms = demoKmh / 3.6;
+        send({ t: 'input', s: ms, a: (ms - demoPrev) / 0.04 });
+        demoPrev = ms;
+      } else {
+        send({ t: 'input', s: S.v, a: S.aLong });
+      }
+    }
+
+    /* skjerm: 20 Hz */
+    if (ts - lastUi > 50) {
+      lastUi = ts;
+      render();
+    }
+  }
+
+  var lastGear = 0, lastShiftAt = 0;
+
+  function render() {
+    var s = latest;
+    var rpm = 0, gear = 0, kmh = 0, thr = 0, state = 0;
+    if (running && s) {
+      rpm = s.rpm; gear = s.gear; kmh = s.speed * 3.6; thr = s.throttle; state = s.state;
+    }
+
+    var lit = clamp(Math.round((rpm / profile.redlineRpm) * SEG), 0, SEG);
+    paintRing(lit);
+    document.documentElement.style.setProperty('--glow', (lit / SEG).toFixed(2));
+
+    $('rpm').textContent = Math.round(rpm / 10) * 10;
+    $('gear').textContent = state === 0 ? '–' : state === 1 ? 'S' : String(gear);
+    $('kmh').textContent = Math.round(kmh);
+    $('thrVal').textContent = Math.round(thr * 100) + ' %';
+    $('thrFill').style.width = (thr * 100).toFixed(0) + '%';
+    $('loadFill').style.width = clamp(kmh / 150 * 100, 0, 100).toFixed(0) + '%';
+    $('gearVal').textContent = state === 2 ? gear + '. gir' : '—';
+
+    if (s && s.shifting && Date.now() - lastShiftAt > 320) {
+      lastShiftAt = Date.now();
+      var fl = $('flare');
+      fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
+    }
+
+    /* status */
+    var dot = $('statusDot'), txt = $('statusText');
+    if (demo) { txt.textContent = 'Demo'; dot.style.background = 'var(--ink-dim)'; }
+    else if (S.permission === 'nektet') { txt.textContent = 'GPS nektet'; dot.style.background = 'var(--red)'; }
+    else if (!S.hasFix) { txt.textContent = running ? 'Søker GPS' : 'GPS klar'; dot.style.background = 'var(--amber)'; }
+    else {
+      txt.textContent = 'GPS ±' + S.accuracy + ' m';
+      dot.style.background = S.fwdMag > 0.48 ? 'var(--green)' : 'var(--amber)';
+    }
+
+    var foot = $('foot');
+    if (!running) foot.textContent = 'Trykk start — motoren dras rundt og tar tak.';
+    else if (!audioMode) foot.textContent = 'Starter lydmotoren …';
+    else {
+      var extra = (!demo && S.motionOn && S.fwdMag > 0 && S.fwdMag <= 0.48) ? ' · kalibrerer retning' : '';
+      if (!demo && !S.motionOn) { foot.textContent = 'Sanntidssyntese · ' + audioMode + ' · uten bevegelsessensor'; foot.className = 'foot warn'; }
+      else { foot.textContent = 'Sanntidssyntese · ' + audioMode + extra; foot.className = 'foot'; }
+    }
+  }
+
+  /* ═══════════════ handlinger ═══════════════ */
+  function startEngine() {
+    return buildAudio().then(function () {
+      return ctx.state !== 'running' ? ctx.resume() : null;
+    }).then(function () {
+      send({ t: 'start' });
+      running = true;
+      $('powerBtn').textContent = 'Slå av motor';
+      $('powerBtn').classList.add('running');
+      keepAwake(true);
+      if (!demo) startSensors();
+    }).catch(function (e) {
+      $('foot').textContent = 'Lyden startet ikke: ' + (e && e.message ? e.message : e);
+      $('foot').className = 'foot warn';
+    });
+  }
+
+  function stopEngine() {
+    send({ t: 'stop' });
+    running = false;
+    stopTest();
+    $('powerBtn').textContent = 'Start motor';
+    $('powerBtn').classList.remove('running');
+    keepAwake(false);
+  }
+
+  function stopTest() {
+    test = null; lastTestPhase = null;
+    $('testBtn').classList.remove('armed');
+    $('testLabel').textContent = 'Testkjøring 0–50 halv · 50–100 full';
+  }
+
+  $('powerBtn').addEventListener('click', function () {
+    running ? stopEngine() : startEngine();
+  });
+
+  $('testBtn').addEventListener('click', function () {
+    if (test) { stopTest(); return; }
+    var go = function () {
+      test = newTestRun();
+      lastTestPhase = null;
+      $('testBtn').classList.add('armed');
+      $('testLabel').textContent = TEST_LABELS.vent;
+    };
+    running ? go() : startEngine().then(go);
+  });
+
+  /* ── innstillinger ── */
+  function openSheet(v) { $('sheetBg').classList.toggle('open', v); }
+  $('openSettings').addEventListener('click', function () { openSheet(true); });
+  $('closeSheet').addEventListener('click', function () { openSheet(false); });
+  $('sheetBg').addEventListener('click', function (e) { if (e.target === $('sheetBg')) openSheet(false); });
+
+  function applyProfile(p) {
+    profile = p;
+    document.documentElement.style.setProperty('--accent', p.accent);
+    $('tagline').textContent = p.tagline;
+    $('engineHint').textContent = p.tagline;
+    buildRing(); sizeGauge();
+    Array.prototype.forEach.call($('chips').children, function (c) {
+      c.classList.toggle('on', c.dataset.id === p.id);
+    });
+    pushProfile();
+  }
+
+  PROFILES.forEach(function (p) {
+    var b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.id = p.id;
+    b.style.setProperty('--chip', p.accent);
+    b.textContent = p.name;
+    b.addEventListener('click', function () { applyProfile(p); });
+    $('chips').appendChild(b);
+  });
+
+  $('volume').addEventListener('input', function (e) { volume = +e.target.value; pushProfile(); });
+  $('cabin').addEventListener('input', function (e) {
+    cabin = +e.target.value;
+    $('cabinVal').textContent = Math.round((1 - cabin) * 100) + ' / ' + Math.round(cabin * 100);
+    pushProfile();
+  });
+
+  $('demoRow').addEventListener('click', function () {
+    demo = !demo;
+    $('demoSwitch').classList.toggle('on', demo);
+    $('demoWrap').style.display = demo ? 'block' : 'none';
+    if (!demo && running) startSensors();
+  });
+  $('demoSpeed').addEventListener('input', function (e) {
+    demoKmh = +e.target.value;
+    $('demoVal').textContent = demoKmh + ' km/t';
+  });
+
+  /* ── i gang ── */
+  applyProfile(PROFILES[0]);
+  sizeGauge();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

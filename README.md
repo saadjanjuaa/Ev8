@@ -92,6 +92,26 @@ Bytt i innstillingene (tannhjulet oppe til høyre).
 
 ## Kom i gang
 
+Det finnes to måter å kjøre EV8 på. Begge bruker **nøyaktig samme lydmotor** —
+`web/` bygges fra de samme kildefilene som appen, så de kan ikke drifte fra
+hverandre.
+
+### Som nettside (ingen installasjon)
+
+```bash
+node scripts/build-web.mjs
+```
+
+Bygger `web/ev8.html` — hele appen i én selvstendig fil på ca. 97 kB. Lydmotoren
+kjører i en `AudioWorklet` rett i nettleseren, uten React Native rundt seg.
+Åpnes fra en HTTPS-adresse virker GPS og bevegelsessensor som i appen, og
+«Legg til på Hjem-skjerm» gir den et eget ikon.
+
+Bygget lager også `web/ev8-hosted.html`, samme side uten `<html>`/`<body>`,
+til bruk der verten leverer sitt eget dokumentskjelett.
+
+### Som app (React Native)
+
 ```bash
 npm install
 npx expo start
@@ -166,6 +186,8 @@ src/audio/testDrive.ts     skriptet testkjøring 0-50 halv gass, 50-100 full
 src/sensors/               GPS + akselerometer-fusjon
 src/ui/                    glassmorfisme-komponenter og turtelleren
 src/screens/DriveScreen.tsx
+web/template.html          nettversjonens grensesnitt (malen)
+scripts/build-web.mjs      limer DSP-en inn i malen -> web/ev8.html
 ```
 
 ## Justere lyden

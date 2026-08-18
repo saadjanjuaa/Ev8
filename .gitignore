@@ -10,3 +10,7 @@ web-build/
 *.key
 *.mobileprovision
 .env
+
+# bygget nettversjon — lages av scripts/build-web.mjs
+web/ev8.html
+web/ev8-hosted.html
