@@ -247,8 +247,8 @@ function createEngineCore(SR) {
   var turbA = new OnePole(), turbB = new OnePole();
   var turbCoef = poleA(2100);
 
-  var apL1 = new AP(SR * 0.0071, 0.62), apL2 = new AP(SR * 0.0043, 0.52);
-  var apR1 = new AP(SR * 0.0067, 0.62), apR2 = new AP(SR * 0.0047, 0.52);
+  var apL1 = new AP(SR * 0.0071, 0.45), apL2 = new AP(SR * 0.0043, 0.36);
+  var apR1 = new AP(SR * 0.0067, 0.45), apR2 = new AP(SR * 0.0047, 0.36);
 
   var dcL = new BQ(), dcR = new BQ();
   var eqLowL = new BQ(), eqLowR = new BQ();
@@ -500,10 +500,10 @@ function createEngineCore(SR) {
     var rpmN = clamp(rpm / cfg.maxRpm, 0, 1.1);
     var tq = 0.82 + 0.30 * sinT(clamp(rpm / (cfg.torquePeak * 2), 0, 1) * 0.5);
     var thrEff = throttle;
-    tCombAmp = (0.12 + 0.88 * thrEff) * fuelCut * tq;
-    tPumpAmp = 0.42 + 0.38 * rpmN;
+    tCombAmp = (0.21 + 0.79 * thrEff) * fuelCut * tq;
+    tPumpAmp = 0.16 + 0.22 * rpmN;
     tNoiseAmp = 0.16 + 0.30 * thrEff;
-    tFloor = 0.03 + 0.10 * rpmN;
+    tFloor = 0.004 + 0.016 * rpmN;
     tDrive = 1.05 + thrEff * 0.85 + rpmN * 0.5;
     tLevel = (0.52 + 0.72 * rpmN) * (state === ST_OFF ? 0 : 1);
     tIntake = cfg.intake * Math.pow(thrEff, 0.7) * (0.25 + 0.85 * rpmN);
@@ -596,8 +596,8 @@ function createEngineCore(SR) {
          digital og hvesende ut, så den lavpassfiltreres først. */
       var nA = turbA.lp(nrnd(), turbCoef);
       var nB = turbB.lp(nrnd(), turbCoef);
-      var flowA = bdA * 0.6 + scA + sFloor;
-      var flowB = bdB * 0.6 + scB + sFloor;
+      var flowA = bdA + scA * 0.14 + sFloor;
+      var flowB = bdB + scB * 0.14 + sFloor;
       exA += flowA * sNoiseAmp * nA * 2.2;
       exB += flowB * sNoiseAmp * nB * 2.2;
 
@@ -623,9 +623,9 @@ function createEngineCore(SR) {
 
       /* ---- bølgeleder: header per bank ---- */
       var hA = hdrA.read(hdrDA);
-      hdrA.write(exA * 0.55 - hdrLPA.lp(hA, dampA) * refl);
+      hdrA.write(exA * 1.15 - hdrLPA.lp(hA, dampA) * refl);
       var hB = hdrB.read(hdrDB);
-      hdrB.write(exB * 0.55 - hdrLPB.lp(hB, dampA) * refl);
+      hdrB.write(exB * 1.15 - hdrLPB.lp(hB, dampA) * refl);
 
       /* ---- H-rør + doble midtrør ---- */
       var inL = hA + hB * xo + pL;
@@ -691,9 +691,9 @@ function createEngineCore(SR) {
 
       /* ---- liten romfølelse ---- */
       var ra = revA.read(revDA), rb = revB.read(revDB);
-      revA.write(yL * 0.55 + revLPa.lp(rb, 0.42) * 0.42);
-      revB.write(yR * 0.55 + revLPb.lp(ra, 0.42) * 0.42);
-      yL += ra * 0.10; yR += rb * 0.10;
+      revA.write(yL * 0.5 + revLPa.lp(rb, 0.42) * 0.12);
+      revB.write(yR * 0.5 + revLPb.lp(ra, 0.42) * 0.12);
+      yL += ra * 0.025; yR += rb * 0.025;
 
       yL *= sLevel * vol; yR *= sLevel * vol;
 
