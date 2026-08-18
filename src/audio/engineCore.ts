@@ -127,6 +127,19 @@ function createEngineCore(SR) {
     var w = TAU * f * invSR, cs = Math.cos(w), al = Math.sin(w) / (2 * q);
     this.norm(1 + al * A, -2 * cs, 1 - al * A, 1 + al / A, -2 * cs, 1 - al / A);
   };
+  BQ.prototype.lowshelf = function (f, dB) {
+    f = clamp(f, 20, SR * 0.45);
+    var A = Math.pow(10, dB / 40), w = TAU * f * invSR;
+    var cs = Math.cos(w), sn = Math.sin(w), al = sn / 2 * Math.sqrt(2), s2 = 2 * Math.sqrt(A) * al;
+    this.norm(
+      A * ((A + 1) - (A - 1) * cs + s2),
+      2 * A * ((A - 1) - (A + 1) * cs),
+      A * ((A + 1) - (A - 1) * cs - s2),
+      (A + 1) + (A - 1) * cs + s2,
+      -2 * ((A - 1) + (A + 1) * cs),
+      (A + 1) + (A - 1) * cs - s2
+    );
+  };
   BQ.prototype.highshelf = function (f, dB) {
     f = clamp(f, 20, SR * 0.45);
     var A = Math.pow(10, dB / 40), w = TAU * f * invSR;
@@ -171,7 +184,8 @@ function createEngineCore(SR) {
     damping: 3000,          /* Hz — rørdemping */
     muffler: 0.5,           /* 0 = rett rør, 1 = stille */
     crossover: 0.34,        /* H-rør: hvor mye bankene deler */
-    growl: 6.5,             /* dB @ 80 Hz */
+    growl: 6.5,             /* dB — lavhylle under 120 Hz */
+    rumble: 5.0,            /* dB @ 62 Hz — der V8-rumlingen sitter */
     rasp: 4.0,              /* dB @ 1.3 kHz, skaleres med gass */
     intake: 0.45,
     whine: 0.0,             /* kompressorhyl (0 = naturlig aspirert) */
@@ -231,13 +245,20 @@ function createEngineCore(SR) {
   var midLPL = new OnePole(), midLPR = new OnePole();
   var mufLPL = new OnePole(), mufLPR = new OnePole();
   var turbA = new OnePole(), turbB = new OnePole();
-  var turbCoef = poleA(3000);
+  var turbCoef = poleA(2100);
 
   var apL1 = new AP(SR * 0.0071, 0.62), apL2 = new AP(SR * 0.0043, 0.52);
   var apR1 = new AP(SR * 0.0067, 0.62), apR2 = new AP(SR * 0.0047, 0.52);
 
   var dcL = new BQ(), dcR = new BQ();
   var eqLowL = new BQ(), eqLowR = new BQ();
+  var eqRumL = new BQ(), eqRumR = new BQ();
+  /* Bassen skal IKKE gjennom metningen. Signalet deles i to bånd, bare
+     det øvre forvrenges, og de summeres igjen. Det er dette som gjør at
+     man kan ha mye bunn uten at det blir grøtete og bråkete. */
+  var splitL1 = new OnePole(), splitL2 = new OnePole();
+  var splitR1 = new OnePole(), splitR2 = new OnePole();
+  var splitA = poleA(170);
   var eqBodyL = new BQ(), eqBodyR = new BQ();
   var eqRaspL = new BQ(), eqRaspR = new BQ();
   /* To mikrofonperspektiver som kjorer parallelt paa samme eksossignal:
@@ -250,7 +271,7 @@ function createEngineCore(SR) {
   var inTameL = new BQ(), inTameR = new BQ();   /* demp skarpheten i mellomtonen */
   var outLPL = new BQ(), outLPR = new BQ();
   var outEdgeL = new BQ(), outEdgeR = new BQ(); /* naerhet / anslag */
-  dcL.highpass(26, 0.7); dcR.highpass(26, 0.7);
+  dcL.highpass(18, 0.7); dcR.highpass(18, 0.7);
   eqBodyL.peaking(235, 0.9, 2.5); eqBodyR.peaking(235, 0.9, 2.5);
 
   var intakeBP = new BQ(), intakeBP2 = new BQ(), mechHP = new BQ();
@@ -297,18 +318,22 @@ function createEngineCore(SR) {
     midDR = clamp(SR * 2 * (cfg.midLen * 1.022) / C_AIR, 8, MAXD - 4);
     dampA = poleA(cfg.damping);
     dampA2 = poleA(cfg.damping * 0.55);
-    eqLowL.peaking(80, 0.8, cfg.growl); eqLowR.peaking(80, 0.8, cfg.growl);
+    /* Lavhylle løfter HELE bunnen — også halv- og kvartordens linjene som
+       ligger under tenningsfrekvensen. Det er de som ER rumlingen; en smal
+       topp på 80 Hz traff bare grunntonen og gjorde den brummete i stedet. */
+    eqLowL.lowshelf(125, cfg.growl); eqLowR.lowshelf(125, cfg.growl);
+    eqRumL.peaking(62, 0.9, cfg.rumble); eqRumR.peaking(64, 0.9, cfg.rumble);
 
     /* INNE: bilen rundt deg. Karosseri og glass demper alt over ca. 2,5 kHz,
        og kupeen har en egenresonans nede rundt 60 Hz som gir brystdunket. */
     inLPL.lowpass(2500, 0.72); inLPR.lowpass(2560, 0.72);
     inBoomL.peaking(62, 1.0, 5.5); inBoomR.peaking(64, 1.0, 5.5);
-    inTameL.peaking(1500, 1.1, -3); inTameR.peaking(1540, 1.1, -3);
+    inTameL.peaking(1600, 1.1, -4); inTameR.peaking(1640, 1.1, -4);
 
     /* UTE: mikrofon ved enderoret. Full bandbredde og naerhet, saa
        forbrenningspulsene og smellene beholder anslaget sitt. */
     outLPL.lowpass(9000, 0.7); outLPR.lowpass(9150, 0.7);
-    outEdgeL.peaking(2500, 0.9, 3.5); outEdgeR.peaking(2560, 0.9, 3.5);
+    outEdgeL.peaking(2300, 0.9, 2.4); outEdgeR.peaking(2360, 0.9, 2.4);
   }
   recalcGeometry();
 
@@ -477,13 +502,13 @@ function createEngineCore(SR) {
     var thrEff = throttle;
     tCombAmp = (0.12 + 0.88 * thrEff) * fuelCut * tq;
     tPumpAmp = 0.42 + 0.38 * rpmN;
-    tNoiseAmp = 0.30 + 0.50 * thrEff;
-    tFloor = 0.05 + 0.20 * rpmN;
+    tNoiseAmp = 0.16 + 0.30 * thrEff;
+    tFloor = 0.03 + 0.10 * rpmN;
     tDrive = 1.05 + thrEff * 0.85 + rpmN * 0.5;
     tLevel = (0.52 + 0.72 * rpmN) * (state === ST_OFF ? 0 : 1);
     tIntake = cfg.intake * Math.pow(thrEff, 0.7) * (0.25 + 0.85 * rpmN);
     tWhine = cfg.whine * (0.15 + 0.85 * thrEff) * Math.pow(rpmN, 1.3);
-    tMech = 0.05 + 0.05 * rpmN;
+    tMech = 0.018 + 0.022 * rpmN;
     tMufMix = clamp(cfg.muffler * (1 - thrEff * 0.30), 0, 1);
     tStarter = starterAmp;
 
@@ -637,13 +662,22 @@ function createEngineCore(SR) {
       /* ---- utgangs-EQ: kropp, brøl, rasp, kupé ---- */
       yL = dcL.run(yL); yR = dcR.run(yR);
       yL = eqLowL.run(yL); yR = eqLowR.run(yR);
+      yL = eqRumL.run(yL); yR = eqRumR.run(yR);
       yL = eqBodyL.run(yL); yR = eqBodyR.run(yR);
       yL = eqRaspL.run(yL); yR = eqRaspR.run(yR);
 
-      /* ---- metning (varme + grov kant) ---- */
-      var dv1 = yL * sDrive, dv2 = yR * sDrive;
-      yL = dv1 / (1 + Math.abs(dv1) * 0.7);
-      yR = dv2 / (1 + Math.abs(dv2) * 0.7);
+      /* ---- metning, men bare på det øvre båndet ----
+         Bassen har de største utslagene, så kjøres den gjennom metningen
+         blir den både klemt flat og full av grove overtoner. Her tas den
+         ut først, forvrengningen legges på resten, og de summeres igjen:
+         bunnen står ren og tung, kanten sitter der den skal. */
+      var loL = splitL2.lp(splitL1.lp(yL, splitA), splitA);
+      var loR = splitR2.lp(splitR1.lp(yR, splitA), splitA);
+      var hiL = (yL - loL) * sDrive, hiR = (yR - loR) * sDrive;
+      hiL = hiL / (1 + Math.abs(hiL) * 0.7);
+      hiR = hiR / (1 + Math.abs(hiR) * 0.7);
+      yL = loL * 1.15 + hiL;
+      yR = loR * 1.15 + hiR;
 
       /* ── de to perspektivene, og blandingen mellom dem ──
          Begge kjores alltid, saa ingen detaljer forsvinner i mellomstillinger:

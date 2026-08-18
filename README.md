@@ -46,6 +46,25 @@ tyngdepunkt under full gass:
 | Blanding (standard) | 428 Hz |
 | Bare kupé | 325 Hz |
 
+## Bunn og bråk
+
+Metningen legges bare på det ØVRE båndet. Signalet deles ved 170 Hz, bassen
+tas ut ren, forvrengningen legges på resten, og de summeres igjen. Kjøres
+bassen gjennom metningen blir den både klemt flat — den har jo de største
+utslagene — og full av grove overtoner. Delt opp står bunnen tung og ren
+samtidig som kanten sitter der den skal.
+
+Under bunnen ligger en lavhylle på 125 Hz i stedet for en smal topp på 80 Hz.
+Halv- og kvartordens linjene som ER rumlingen ligger *under* tenningsfrekvensen,
+og en smal topp traff bare grunntonen — det ga brumming, ikke rumling.
+
+Målt frekvensbalanse ved 80 km/t, som viser hva de to grepene gjorde:
+
+| | 25–120 Hz | 2–8 kHz | Forhold | Tyngdepunkt |
+|---|---|---|---|---|
+| Før | −47,6 dB | −70,4 dB | 22,8 dB | 282 Hz |
+| Nå | −45,3 dB | −76,8 dB | 31,5 dB | 166 Hz |
+
 ## Testkjøring
 
 Knappen **TESTKJØRING** spiller av en skriptet tur uten at du beveger deg:
