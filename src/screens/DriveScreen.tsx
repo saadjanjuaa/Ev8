@@ -47,7 +47,8 @@ export default function DriveScreen() {
   const [running, setRunning] = useState(false);
   const [profileId, setProfileId] = useState(DEFAULT_PROFILE_ID);
   const [volume, setVolume] = useState(0.85);
-  const [cabin, setCabin] = useState(true);
+  /* lydbilde: 0 = ren utvendig mikrofon, 1 = ren kupemikrofon */
+  const [cabin, setCabin] = useState(0.55);
   const [demo, setDemo] = useState(false);
   const [demoKmh, setDemoKmh] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -77,7 +78,7 @@ export default function DriveScreen() {
 
   /* ── profil / volum / kupé sendes ned til DSP-en ── */
   useEffect(() => {
-    engine.current?.setProfile({ ...profile.dsp, volume, cabin: cabin ? 0.62 : 0.12 });
+    engine.current?.setProfile({ ...profile.dsp, volume, cabin });
   }, [profile, volume, cabin]);
 
   /* ── iOS suspenderer lyden når appen legges bort: vekk den igjen ── */
@@ -180,7 +181,7 @@ export default function DriveScreen() {
       setRunning(false);
     } else {
       setError(null);
-      engine.current?.setProfile({ ...profile.dsp, volume, cabin: cabin ? 0.62 : 0.12 });
+      engine.current?.setProfile({ ...profile.dsp, volume, cabin });
       engine.current?.start();
       setRunning(true);
     }
@@ -194,7 +195,7 @@ export default function DriveScreen() {
     }
     if (!running) {
       setError(null);
-      engine.current?.setProfile({ ...profile.dsp, volume, cabin: cabin ? 0.62 : 0.12 });
+      engine.current?.setProfile({ ...profile.dsp, volume, cabin });
       engine.current?.start();
       setRunning(true);
     }
@@ -406,16 +407,28 @@ export default function DriveScreen() {
                 style={styles.slider}
               />
 
-              <View style={styles.sheetRow}>
-                <Toggle
-                  on={cabin}
-                  label="LYD FRA KUPÉEN"
-                  accent={profile.accent}
-                  onPress={() => setCabin((v) => !v)}
-                />
+              <Text style={styles.sheetTitle}>LYDBILDE</Text>
+              <Slider
+                value={cabin}
+                onValueChange={setCabin}
+                minimumValue={0}
+                maximumValue={1}
+                minimumTrackTintColor={profile.accent}
+                maximumTrackTintColor="rgba(255,255,255,0.16)"
+                thumbTintColor={profile.accent}
+                style={styles.slider}
+              />
+              <View style={styles.scaleRow}>
+                <Text style={styles.scaleEnd}>UTENFOR BILEN</Text>
+                <Text style={[styles.scaleValue, numeric]}>
+                  {Math.round((1 - cabin) * 100)} / {Math.round(cabin * 100)}
+                </Text>
+                <Text style={styles.scaleEnd}>I KUPÉEN</Text>
               </View>
               <Text style={styles.hint}>
-                Av = som å stå utenfor bilen: skarpere og mer rå.
+                To mikrofoner som spilles samtidig, ikke enten eller. Utsiden gir
+                anslag og smell, kupéen gir tyngde i bunnen. Midt på får du begge
+                deler.
               </Text>
 
               <View style={styles.sheetRow}>
@@ -520,6 +533,9 @@ const styles = StyleSheet.create({
   },
   sheetRow: { marginTop: 20 },
   hint: { color: 'rgba(255,255,255,0.32)', fontSize: 11, marginTop: 8, lineHeight: 15 },
+  scaleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 },
+  scaleEnd: { color: 'rgba(255,255,255,0.30)', fontSize: 9.5, fontWeight: '800', letterSpacing: 1 },
+  scaleValue: { color: T.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   closeBtn: {
     marginTop: 26,
     paddingVertical: 13,

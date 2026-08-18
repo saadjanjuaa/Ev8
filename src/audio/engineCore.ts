@@ -187,7 +187,9 @@ function createEngineCore(SR) {
     shiftUpLow: 2450,       /* girpunkt ved 0 % gass */
     shiftUpHigh: 6000,      /* girpunkt ved 100 % gass */
     torquePeak: 3600,
-    cabin: 0.5,             /* 0 = utenfor bilen, 1 = inne i kupeen */
+    /* Lydbilde: 0 = ren utvendig mikrofon, 1 = ren kupemikrofon.
+       Verdier imellom er en ekte blanding av begge, ikke et mellomting. */
+    cabin: 0.55,
     volume: 0.85
   };
 
@@ -238,8 +240,16 @@ function createEngineCore(SR) {
   var eqLowL = new BQ(), eqLowR = new BQ();
   var eqBodyL = new BQ(), eqBodyR = new BQ();
   var eqRaspL = new BQ(), eqRaspR = new BQ();
-  var lpOutL = new BQ(), lpOutR = new BQ();
-  var shelfL = new BQ(), shelfR = new BQ();
+  /* To mikrofonperspektiver som kjorer parallelt paa samme eksossignal:
+       INNE  — karosseriet spiser diskanten, kupeen boomer i bunnen
+       UTE   — full bandbredde, hardere anslag, mer kant paa hver puls
+     De blandes til slutt. Det er slik en bilspill-motor faktisk mikses:
+     tyngden kommer innenfra, detaljene utenfra. */
+  var inLPL = new BQ(), inLPR = new BQ();       /* karosseriets lavpass */
+  var inBoomL = new BQ(), inBoomR = new BQ();   /* kuperesonans */
+  var inTameL = new BQ(), inTameR = new BQ();   /* demp skarpheten i mellomtonen */
+  var outLPL = new BQ(), outLPR = new BQ();
+  var outEdgeL = new BQ(), outEdgeR = new BQ(); /* naerhet / anslag */
   dcL.highpass(26, 0.7); dcR.highpass(26, 0.7);
   eqBodyL.peaking(235, 0.9, 2.5); eqBodyR.peaking(235, 0.9, 2.5);
 
@@ -264,7 +274,7 @@ function createEngineCore(SR) {
   /* utjevnede parametere (per sample, unngår zipper-støy) */
   var sCombAmp = 0, sPumpAmp = 0.5, sNoiseAmp = 0.4, sDrive = 1,
     sLevel = 1, sIntake = 0, sWhine = 0, sMech = 0, sMufMix = 0.5, sStarter = 0,
-    sFloor = 0;
+    sFloor = 0, sCabin = 0.55;
 
   var evQueue = [];
   function pushEvent(name, value) {
@@ -274,7 +284,7 @@ function createEngineCore(SR) {
   /* måltall for lydparametere, satt av updateVehicle, glattet i render */
   var tCombAmp = 0, tPumpAmp = 0.5, tNoiseAmp = 0.4, tDrive = 1, tLevel = 0,
     tIntake = 0, tWhine = 0, tMech = 0, tMufMix = 0.5, tStarter = 0, tFloor = 0,
-    mufA = 0.3;
+    tCabin = 0.55, mufA = 0.3;
 
   /* ── koeffisienter som avhenger av cfg ── */
   var hdrDA = 0, hdrDB = 0, midDL = 0, midDR = 0, dampA = 0, dampA2 = 0;
@@ -288,6 +298,17 @@ function createEngineCore(SR) {
     dampA = poleA(cfg.damping);
     dampA2 = poleA(cfg.damping * 0.55);
     eqLowL.peaking(80, 0.8, cfg.growl); eqLowR.peaking(80, 0.8, cfg.growl);
+
+    /* INNE: bilen rundt deg. Karosseri og glass demper alt over ca. 2,5 kHz,
+       og kupeen har en egenresonans nede rundt 60 Hz som gir brystdunket. */
+    inLPL.lowpass(2500, 0.72); inLPR.lowpass(2560, 0.72);
+    inBoomL.peaking(62, 1.0, 5.5); inBoomR.peaking(64, 1.0, 5.5);
+    inTameL.peaking(1500, 1.1, -3); inTameR.peaking(1540, 1.1, -3);
+
+    /* UTE: mikrofon ved enderoret. Full bandbredde og naerhet, saa
+       forbrenningspulsene og smellene beholder anslaget sitt. */
+    outLPL.lowpass(9000, 0.7); outLPR.lowpass(9150, 0.7);
+    outEdgeL.peaking(2500, 0.9, 3.5); outEdgeR.peaking(2560, 0.9, 3.5);
   }
   recalcGeometry();
 
@@ -471,10 +492,7 @@ function createEngineCore(SR) {
     /* filtre som følger turtall/gass */
     eqRaspL.peaking(1150 + rpmN * 900, 1.0, cfg.rasp * (0.25 + thrEff * 0.9));
     eqRaspR.peaking(1180 + rpmN * 900, 1.0, cfg.rasp * (0.25 + thrEff * 0.9));
-    var cut = (1 - cfg.cabin) * 9000 + cfg.cabin * 4200 + thrEff * 1400 + rpmN * 900;
-    lpOutL.lowpass(clamp(cut, 1500, SR * 0.44), 0.72);
-    lpOutR.lowpass(clamp(cut * 1.01, 1500, SR * 0.44), 0.72);
-    shelfL.highshelf(5200, -3 - cfg.cabin * 4); shelfR.highshelf(5200, -3 - cfg.cabin * 4);
+    tCabin = clamp(cfg.cabin, 0, 1);
     var ifq = clamp(rpm / 60 * 2.2, 80, 900);
     intakeBP.bandpass(ifq, 1.2);
     mufA = poleA(1500 + thrEff * 3200 + rpmN * 1800);
@@ -513,6 +531,7 @@ function createEngineCore(SR) {
       sMufMix += (tMufMix - sMufMix) * smooth;
       sStarter += (tStarter - sStarter) * smooth * 0.5;
       sFloor += (tFloor - sFloor) * smooth;
+      sCabin += (tCabin - sCabin) * smooth;
 
       /* ---- veivaksel ---- */
       crank += rpmCur * 6 * invSR;
@@ -626,8 +645,15 @@ function createEngineCore(SR) {
       yL = dv1 / (1 + Math.abs(dv1) * 0.7);
       yR = dv2 / (1 + Math.abs(dv2) * 0.7);
 
-      yL = shelfL.run(lpOutL.run(yL));
-      yR = shelfR.run(lpOutR.run(yR));
+      /* ── de to perspektivene, og blandingen mellom dem ──
+         Begge kjores alltid, saa ingen detaljer forsvinner i mellomstillinger:
+         du hoerer kupeens tyngde OG utsidens kant samtidig. */
+      var inL = inTameL.run(inBoomL.run(inLPL.run(yL))) * 1.42;
+      var inR = inTameR.run(inBoomR.run(inLPR.run(yR))) * 1.42;
+      var exL = outEdgeL.run(outLPL.run(yL));
+      var exR = outEdgeR.run(outLPR.run(yR));
+      yL = inL * sCabin + exL * (1 - sCabin);
+      yR = inR * sCabin + exR * (1 - sCabin);
 
       /* ---- liten romfølelse ---- */
       var ra = revA.read(revDA), rb = revB.read(revDB);

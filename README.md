@@ -26,6 +26,26 @@ smell i girskiftene — uten sømmer eller loop-punkter.
 | **Turtallssperre** | Hakkende tenningskutt mot sperren |
 | **Start / stopp** | Startmotor som drar rundt, motoren tar tak og flarer, og dør ut når du slår av |
 
+## Lydbilde — inne og ute samtidig
+
+To mikrofonperspektiver regnes ut parallelt på det samme eksossignalet:
+
+* **Utenfor bilen** — full båndbredde og nærhet. Anslaget i hver forbrennings­puls
+  og smellene beholder kanten sin.
+* **I kupéen** — karosseriet spiser alt over ca. 2,5 kHz, og kupéens egenresonans
+  rundt 60 Hz gir brystdunket.
+
+Skyvebryteren **LYDBILDE** blander dem. Det er en ekte blanding, ikke et valg:
+begge kjøres alltid, så midt på skalaen får du tyngden fra kupéen *og* detaljene
+fra utsiden på én gang. Standard er 55 % kupé. Til sammenligning, målt spektralt
+tyngdepunkt under full gass:
+
+| Innstilling | Tyngdepunkt |
+|---|---|
+| Bare utenfor | 727 Hz |
+| Blanding (standard) | 428 Hz |
+| Bare kupé | 325 Hz |
+
 ## Testkjøring
 
 Knappen **TESTKJØRING** spiller av en skriptet tur uten at du beveger deg:
@@ -86,8 +106,8 @@ I bilen:
 2. Trykk **START MOTOR** og godta posisjonstilgang.
 3. Kjør. De første gangene du akselererer kalibrerer appen seg (se under).
 
-Vil du høre på lyden mens du står stille: skru på **DEMOMODUS** i innstillingene
-og dra i fartsbryteren.
+Vil du høre på lyden mens du står stille: trykk **TESTKJØRING**, eller skru på
+**DEMOMODUS** i innstillingene og dra i fartsbryteren.
 
 ## Hvordan det virker
 
@@ -112,7 +132,7 @@ Per sample:
    lager resonansene — de er ikke lagt på som EQ etterpå.
 5. **Smell** mates inn i *begynnelsen* av røret, ikke på utgangen, slik at de
    arver rørets klang i stedet for å ligge oppå som en effekt.
-6. Til slutt metning, kupé-filter og limiter.
+6. Til slutt metning, de to mikrofonperspektivene (se over) og limiter.
 
 Ingen sylinder er helt lik: hver har et fast avvik, og amplitude, brennhastighet
 og tenningstidspunkt varierer litt fra syklus til syklus. Det er dette som gjør
@@ -162,6 +182,7 @@ Alt i `profiles.ts` er fysiske størrelser, så det er ganske intuitivt å skru 
 | `popRate`, `popGain` | hvor ofte og hvor hardt det smeller |
 | `idleLope`, `combVar` | hvor ujevn motoren går |
 | `banks` | tenningsrekkefølgens bankmønster (crossplane vs. flatplane) |
+| `cabin` | lydbilde: 0 er ren utvendig mikrofon, 1 er ren kupémikrofon |
 | `shiftUpLow/High` | girpunkt ved henholdsvis null og full gass |
 
 Kjøretøydataene ligger i `CAR` i samme fil, og `gearboxFor()` regner girkassen
