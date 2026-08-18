@@ -182,6 +182,8 @@ function createEngineCore(SR) {
     gears: [3.42, 2.14, 1.45, 1.09, 0.85, 0.69],
     finalDrive: 3.31,
     tireCirc: 2.02,         /* m per hjulomdreining */
+    accelFull: 4.3,         /* m/s² — maks akselerasjon fra stillstand */
+    powerRef: 62,           /* m²/s³ — effekt/masse, gir effektgrensen */
     shiftUpLow: 2450,       /* girpunkt ved 0 % gass */
     shiftUpHigh: 6000,      /* girpunkt ved 100 % gass */
     torquePeak: 3600,
@@ -338,8 +340,21 @@ function createEngineCore(SR) {
     accel += (aMix - accel) * clamp(dt * 8, 0, 1);
 
     /* ---- gasspådrag estimert fra kjøringen ---- */
+    /* Hva som er «full gass» avhenger av farten.
+       En elbil gir alt fra stillstand, men er effektbegrenset over grunnfarten,
+       så maks akselerasjon faller som powerRef/fart. Måler vi gasspådraget mot
+       en fast verdi i stedet, blir alt full gass i by og ingenting i motorvei-
+       fart. Her måles akselerasjonen mot det bilen FAKTISK klarer akkurat nå,
+       så halv gass høres ut som halv gass i hele fartsregisteret. */
+    var aRef = cfg.powerRef / (speed < 4 ? 4 : speed);
+    if (aRef > cfg.accelFull) aRef = cfg.accelFull;
+    if (aRef < 0.9) aRef = 0.9;
+    /* Ved marsjfart står gassen allerede et stykke inne bare for å holde
+       farten. Akselerasjonen fordeles derfor over det som er IGJEN av pedalen,
+       slik at «full gass» lander på nøyaktig 1,0 uansett fart. */
     var dragLoad = clamp(speed / 34, 0, 0.28);          /* luftmotstand ved fart */
-    var demand = clamp(dragLoad + clamp(accel / 2.5, -2, 2), 0, 1);
+    var aDemand = clamp(accel / aRef, -2, 2);
+    var demand = clamp(dragLoad + (1 - dragLoad) * aDemand, 0, 1);
     if (accel < -0.35) demand = 0;                       /* slipp gass / brems */
     if (blipT > 0) demand = 0.85;                        /* mellomgass ved nedgir */
     if (throttleOverride >= 0) demand = throttleOverride;
@@ -361,7 +376,7 @@ function createEngineCore(SR) {
     var ratio = cfg.gears[gear] * cfg.finalDrive;
     var rpmWheels = wheelRps * 60 * ratio;
 
-    if (state === ST_RUN && shiftT <= 0 && gearTime > 0.45) {
+    if (state === ST_RUN && shiftT <= 0 && gearTime > 0.6) {
       var upAt = cfg.shiftUpLow + throttle * (cfg.shiftUpHigh - cfg.shiftUpLow);
       var dnAt = 1250 + throttle * 1450;
       if (rpmWheels > upAt && accel > -0.25) startShift(1);

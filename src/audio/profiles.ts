@@ -1,13 +1,10 @@
 /**
- * Motorprofiler. Hver profil er en fysisk beskrivelse — rørlengder,
- * tenningsrekkefølge, girkasse — ikke et sett med lydfiler.
+ * Bilen og motorene.
  *
- * banks[]: hvilken sylinderbank hver av de 8 tenningene (90° fra hverandre)
- *          tilhører. Dette ene feltet er forskjellen på amerikansk rumling
- *          og italiensk hyl:
- *
- *   Crossplane  [0,1,1,0,1,0,0,1]  bank A fyrer 270-180-90-180°  -> ujevnt, rumling
- *   Flatplane   [0,1,0,1,0,1,0,1]  bank A fyrer 180-180-180-180° -> jevnt, hyl
+ * Bilen er en VW e-Golf. Den bestemmer girkassen, hvor fort det går, og hva
+ * som teller som «full gass». Motorprofilene bestemmer bare hvordan det låter.
+ * Skal appen brukes i en annen bil, er det CAR under som endres — girkassen
+ * regnes ut av seg selv fra toppfarten.
  */
 
 export interface EngineProfile {
@@ -19,13 +16,87 @@ export interface EngineProfile {
   dsp: Record<string, unknown>;
 }
 
-const MUSCLE_GEARS = [3.42, 2.14, 1.45, 1.09, 0.85, 0.69];
+/* ═══════════════════════════════════════════════════════════════════
+   BILEN — VW e-Golf (100 kW, 290 Nm, 35,8 kWh)
+   ═══════════════════════════════════════════════════════════════════ */
+export const CAR = {
+  name: 'VW e-Golf',
+  /** km/t — sperret på 150 */
+  topSpeedKmh: 150,
+  /** meter per hjulomdreining, 205/55 R16 */
+  tireCirc: 1.96,
+  /**
+   * m/s² — maks akselerasjon fra stillstand. e-Golf gjør 0–100 på ca. 9,6 s,
+   * men elmotoren gir alt med én gang: 0–50 tar bare ca. 3,4 s.
+   */
+  accelFull: 4.3,
+  /**
+   * m²/s³ — effekt delt på masse (100 kW / 1615 kg). Over grunnfarten er
+   * bilen effektbegrenset, og maks akselerasjon faller som powerRef / fart.
+   * Det er dette som gjør at 100 km/t i timen føles helt annerledes enn 30.
+   */
+  powerRef: 62,
+  /** m/s² — retardasjon når du slipper gassen (regenerering i D) */
+  regen: 1.6,
+} as const;
+
+/** Maks akselerasjon bilen faktisk klarer ved en gitt fart. */
+export function fullThrottleAccel(speedMs: number): number {
+  const a = CAR.powerRef / Math.max(speedMs, 4);
+  return Math.min(a, CAR.accelFull);
+}
+
+/**
+ * Girkasse regnet ut fra bilen, ikke gjettet.
+ *
+ * Toppgiret velges slik at turtallet ved toppfart lander på TOP_FRACTION av
+ * turtallssperren — altså med litt igjen, som i en ekte bil. Resten av girene
+ * fordeles geometrisk nedover, slik at hvert skift føles like stort.
+ *
+ * Returnerer TOTALE utvekslinger, så finalDrive settes til 1.
+ */
+const TOP_FRACTION = 0.65;
+const RATIO_SPAN = 5.7;      // 1. gir er 5,7 ganger kortere enn toppgiret
+
+export function gearboxFor(redlineRpm: number, count = 6): number[] {
+  const vTop = CAR.topSpeedKmh / 3.6;
+  const topRatio = (TOP_FRACTION * redlineRpm * CAR.tireCirc) / (60 * vTop);
+  const step = Math.pow(RATIO_SPAN, 1 / (count - 1));
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(+(topRatio * Math.pow(step, count - 1 - i)).toFixed(3));
+  }
+  return out;
+}
+
+/** Felles kjøretøydata som alle motorprofiler arver. */
+function vehicle(redlineRpm: number, gears = 6) {
+  return {
+    gears: gearboxFor(redlineRpm, gears),
+    finalDrive: 1,
+    tireCirc: CAR.tireCirc,
+    accelFull: CAR.accelFull,
+    powerRef: CAR.powerRef,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOTORENE
+   ═══════════════════════════════════════════════════════════════════
+
+   banks[]: hvilken sylinderbank hver av de 8 tenningene (90° fra hverandre)
+            tilhører. Dette ene feltet er forskjellen på amerikansk rumling
+            og italiensk hyl:
+
+     Crossplane  [0,1,1,0,1,0,0,1]  bank A fyrer 270-180-90-180°  -> ujevnt
+     Flatplane   [0,1,0,1,0,1,0,1]  bank A fyrer 180-180-180-180° -> jevnt
+*/
 
 export const PROFILES: EngineProfile[] = [
   {
     id: 'muscle',
     name: 'MUSCLE V8',
-    tagline: '6.2 L crossplane · rette rør',
+    tagline: '6,2 L crossplane · rette rør',
     accent: '#FF7A2F',
     redlineRpm: 6400,
     dsp: {
@@ -48,18 +119,17 @@ export const PROFILES: EngineProfile[] = [
       popGain: 1.1,
       idleLope: 1.35,
       combVar: 1.25,
-      gears: MUSCLE_GEARS,
-      finalDrive: 3.31,
-      tireCirc: 2.05,
-      shiftUpLow: 2300,
-      shiftUpHigh: 5800,
       torquePeak: 3400,
+      /* Bytilpasset: girer tidlig når du sluser, seint når du kjører hardt */
+      shiftUpLow: 2200,
+      shiftUpHigh: 5800,
+      ...vehicle(6400),
     },
   },
   {
     id: 'track',
     name: 'TRACK V8',
-    tagline: '4.5 L flatplane · turtallssterk',
+    tagline: '4,5 L flatplane · turtallssterk',
     accent: '#FFD23F',
     redlineRpm: 8600,
     dsp: {
@@ -82,18 +152,16 @@ export const PROFILES: EngineProfile[] = [
       popGain: 0.85,
       idleLope: 0.55,
       combVar: 0.7,
-      gears: [3.15, 2.05, 1.52, 1.18, 0.95, 0.79, 0.67],
-      finalDrive: 3.9,
-      tireCirc: 2.0,
-      shiftUpLow: 3200,
-      shiftUpHigh: 8100,
       torquePeak: 5600,
+      shiftUpLow: 3000,
+      shiftUpHigh: 8100,
+      ...vehicle(8600, 7),
     },
   },
   {
     id: 'blown',
     name: 'BLOWN V8',
-    tagline: '6.2 L kompressor · Hellcat-aktig',
+    tagline: '6,2 L kompressor · Hellcat-aktig',
     accent: '#48E5C2',
     redlineRpm: 6600,
     dsp: {
@@ -116,12 +184,10 @@ export const PROFILES: EngineProfile[] = [
       popGain: 1.2,
       idleLope: 1.0,
       combVar: 1.0,
-      gears: MUSCLE_GEARS,
-      finalDrive: 3.09,
-      tireCirc: 2.08,
-      shiftUpLow: 2500,
-      shiftUpHigh: 6100,
       torquePeak: 4200,
+      shiftUpLow: 2350,
+      shiftUpHigh: 6100,
+      ...vehicle(6600),
     },
   },
 ];

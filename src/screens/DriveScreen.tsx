@@ -20,7 +20,8 @@ import { DEFAULT_PROFILE_ID, PROFILES, profileById } from '../audio/profiles';
 import { useVehicleSpeed } from '../sensors/useVehicleSpeed';
 import { GlassCard } from '../ui/GlassCard';
 import { TACH_SEGMENTS, TachRing } from '../ui/TachRing';
-import { ChipRow, Meter, Pill, PowerButton, Toggle } from '../ui/controls';
+import { ChipRow, Meter, Pill, PowerButton, SecondaryButton, Toggle } from '../ui/controls';
+import { newTestRun, stepTestRun, TEST_LABELS, TestRun } from '../audio/testDrive';
 import { T, numeric, withAlpha } from '../ui/theme';
 
 const FEED_HZ = 25;      // hvor ofte fart sendes til lydmotoren
@@ -58,6 +59,8 @@ export default function DriveScreen() {
   const profile = useMemo(() => profileById(profileId), [profileId]);
   const { sample, status } = useVehicleSpeed(running && !demo);
 
+  const [testLabel, setTestLabel] = useState<string | null>(null);
+  const test = useRef<TestRun | null>(null);
   const latest = useRef<EngineState | null>(null);
   const demoRef = useRef({ kmh: 0, prev: 0, t: Date.now() });
   demoRef.current.kmh = demoKmh;
@@ -99,6 +102,21 @@ export default function DriveScreen() {
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => {
+      const t = test.current;
+      if (t) {
+        const engineReady = latest.current?.state === 2;
+        const tick = stepTestRun(t, 1 / FEED_HZ, engineReady);
+        engine.current?.setInput(tick.speed, tick.accel);
+        setTestLabel((p) => {
+          const next = TEST_LABELS[t.phase];
+          return p === next ? p : next;
+        });
+        if (tick.done) {
+          test.current = null;
+          setTestLabel(null);
+        }
+        return;
+      }
       if (demo) {
         const d = demoRef.current;
         const now = Date.now();
@@ -167,6 +185,30 @@ export default function DriveScreen() {
       setRunning(true);
     }
   }, [running, profile, volume, cabin]);
+
+  const toggleTest = useCallback(() => {
+    if (test.current) {
+      test.current = null;
+      setTestLabel(null);
+      return;
+    }
+    if (!running) {
+      setError(null);
+      engine.current?.setProfile({ ...profile.dsp, volume, cabin: cabin ? 0.62 : 0.12 });
+      engine.current?.start();
+      setRunning(true);
+    }
+    test.current = newTestRun();
+    setTestLabel(TEST_LABELS.vent);
+  }, [running, profile, volume, cabin]);
+
+  /* testen skal ikke leve videre når motoren slås av */
+  useEffect(() => {
+    if (!running && test.current) {
+      test.current = null;
+      setTestLabel(null);
+    }
+  }, [running]);
 
   const onTachLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -305,6 +347,13 @@ export default function DriveScreen() {
         ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <SecondaryButton
+          label={testLabel ?? 'TESTKJØRING  0→50 HALV · 50→100 FULL'}
+          accent={profile.accent}
+          active={testLabel !== null}
+          onPress={toggleTest}
+        />
 
         <PowerButton
           running={running}

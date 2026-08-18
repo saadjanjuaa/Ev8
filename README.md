@@ -4,6 +4,10 @@ Appen leser hvor fort og hvordan telefonen beveger seg, og lager en V8-motorlyd
 som følger kjøringen i sanntid. Koble telefonen til bilstereoen, trykk start, og
 kjør.
 
+Bilen er en **VW e-Golf**. Girkasse, toppfart og gasspådrag er bygget på bilens
+faktiske data, ikke på en generisk V8. Skal appen brukes i en annen bil, er det
+`CAR` i `src/audio/profiles.ts` som endres — girkassen regner seg ut selv.
+
 Lyden er **ikke** lydfiler som spilles av eller pitches opp og ned. Den blir
 regnet ut fra bunnen av, sample for sample, ut fra hvordan en ekte V8 faktisk
 lager lyd. Det er derfor den kan gjøre ting samples ikke kan: legge seg presis
@@ -21,6 +25,42 @@ smell i girskiftene — uten sømmer eller loop-punkter.
 | **Motorbrems** | Forbrenningen dør ut, du hører pumpingen i motoren, og uforbrent drivstoff smeller i eksosen |
 | **Turtallssperre** | Hakkende tenningskutt mot sperren |
 | **Start / stopp** | Startmotor som drar rundt, motoren tar tak og flarer, og dør ut når du slår av |
+
+## Testkjøring
+
+Knappen **TESTKJØRING** spiller av en skriptet tur uten at du beveger deg:
+
+```
+tomgang  →  0–50 km/t med halv gass  →  50–100 km/t med pedalen i gulvet
+         →  hold 100  →  slipp gassen og rull ned med spraking
+```
+
+Farten integreres opp fra bilens faktiske akselerasjonsevne, så 0–50 tar 6,6 s
+på halv gass og 50–100 tar 4,7 s på full — som en ekte e-Golf. Testen mates inn
+i lydmotoren på nøyaktig samme vei som ekte GPS-data, så girkasse, gasspådrag og
+smell oppfører seg identisk med virkelig kjøring. Trykk en gang til for å avbryte.
+
+## Bilen
+
+| | |
+|---|---|
+| Toppfart | 150 km/t |
+| 0–100 | ca. 9,6 s (0–50 på ca. 3,4 s — elmotoren gir alt med én gang) |
+| Effekt/masse | 100 kW / 1615 kg |
+| Hjulomkrets | 1,96 m (205/55 R16) |
+
+To ting følger av dette:
+
+**Girkassen** regnes ut fra toppfarten. Toppgiret legges slik at 150 km/t lander
+på 65 % av turtallssperren, og resten av girene fordeles geometrisk nedover.
+For MUSCLE V8 gir det skift ved 37, 52, 74 og 104 km/t på full gass, og rundt
+2200 o/min i 6. gir ved 80 km/t.
+
+**Gasspådraget** måles mot det bilen faktisk klarer *ved den farten du har nå*.
+En elbil gir alt fra stillstand, men er effektbegrenset høyere oppe: 4,3 m/s² fra
+stopp, men bare 2,5 m/s² ved 90 km/t. Måltes akselerasjonen mot en fast verdi,
+ville alt hørtes ut som full gass i by og ingenting i motorveifart. Nå høres
+halv gass ut som halv gass i hele fartsregisteret.
 
 ## Motorer
 
@@ -101,7 +141,8 @@ ved siden av GPS-statusen blir grønn når retningen sitter.
 src/audio/engineCore.ts    motoren + eksosanlegget + girkassen (DSP)
 src/audio/engineHtml.ts    lydverten: AudioWorklet, med ScriptProcessor i reserve
 src/audio/EngineAudio.tsx  broen mellom React Native og lydtråden
-src/audio/profiles.ts      de tre motorene, som fysiske beskrivelser
+src/audio/profiles.ts      bilen + de tre motorene, som fysiske beskrivelser
+src/audio/testDrive.ts     skriptet testkjøring 0-50 halv gass, 50-100 full
 src/sensors/               GPS + akselerometer-fusjon
 src/ui/                    glassmorfisme-komponenter og turtelleren
 src/screens/DriveScreen.tsx
@@ -122,6 +163,9 @@ Alt i `profiles.ts` er fysiske størrelser, så det er ganske intuitivt å skru 
 | `idleLope`, `combVar` | hvor ujevn motoren går |
 | `banks` | tenningsrekkefølgens bankmønster (crossplane vs. flatplane) |
 | `shiftUpLow/High` | girpunkt ved henholdsvis null og full gass |
+
+Kjøretøydataene ligger i `CAR` i samme fil, og `gearboxFor()` regner girkassen
+ut fra dem.
 
 ## Merk
 

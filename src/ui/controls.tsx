@@ -142,6 +142,36 @@ export function PowerButton({
   );
 }
 
+/* ───────────────────────── sekundærknapp ───────────────────────── */
+
+export function SecondaryButton({
+  label,
+  accent,
+  active,
+  onPress,
+}: {
+  label: string;
+  accent: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        s.secondary,
+        active && { borderColor: withAlpha(accent, 0.8), backgroundColor: withAlpha(accent, 0.13) },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <View style={[s.secondaryDot, { backgroundColor: active ? accent : 'transparent', borderColor: withAlpha(accent, 0.6) }]} />
+      <Text style={[s.secondaryText, active && { color: accent }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 /* ───────────────────────── liten bryter ───────────────────────── */
 
 export function Toggle({
@@ -221,6 +251,20 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth * 2,
   },
   powerText: { fontSize: 14, fontWeight: '900', letterSpacing: 1.6 },
+
+  secondary: {
+    height: 44,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: T.border,
+  },
+  secondaryDot: { width: 7, height: 7, borderRadius: 4, borderWidth: 1 },
+  secondaryText: { color: T.muted, fontSize: 11.5, fontWeight: '800', letterSpacing: 1.1 },
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggleLabel: { color: T.muted, fontSize: 12, fontWeight: '700', letterSpacing: 0.8 },
