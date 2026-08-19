@@ -188,8 +188,11 @@ function createEngineCore(SR) {
      KONFIGURASJON (settes fra JS-siden via setProfile)
      ═══════════════════════════════════════════════════════════════════ */
   var cfg = {
-    /* bank (0/1) for hver av de 8 tenningene, 90° fra hverandre.
-       Crossplane small-block (1-8-4-3-6-5-7-2), bank A = 1,3,5,7 */
+    /* Antall tenninger per arbeidssyklus (720 veivgrader). Åtte for en V8,
+       seks for en rekkesekser. Avstanden mellom tenningene følger av dette. */
+    cylinders: 8,
+    /* Hvilken bank hver tenning tilhører. Ligger alle på bank 0 er motoren
+       enbanks — én manifold — og eksosen deler seg først bak samlerøret. */
     banks: [0, 1, 1, 0, 1, 0, 0, 1],
     idleRpm: 720,
     maxRpm: 6400,
@@ -244,13 +247,16 @@ function createEngineCore(SR) {
   var idleWob = 0, idleWobTarget = 0, idleWobT = 0;
   var starterAmp = 0;
 
-  var fireAng = [0, 90, 180, 270, 360, 450, 540, 630];
-  var cylTrim = new Float32Array(8);   /* fast avvik: ingen motor er perfekt */
-  var cylAmp = new Float32Array(8);    /* variasjon fra syklus til syklus */
-  var cylDec = new Float32Array(8);    /* forbrenningen brenner litt ulikt hver gang */
-  var cylJit = new Float32Array(8);    /* tenningsjitter */
-  var prevPh = new Float32Array(8);
-  for (var ci = 0; ci < 8; ci++) {
+  var MAXCYL = 12;
+  var nCyl = 8, singleBank = false;
+  var fireAng = new Float32Array(MAXCYL);
+  var cylBank = new Uint8Array(MAXCYL);
+  var cylTrim = new Float32Array(MAXCYL);   /* fast avvik: ingen motor er perfekt */
+  var cylAmp = new Float32Array(MAXCYL);    /* variasjon fra syklus til syklus */
+  var cylDec = new Float32Array(MAXCYL);    /* forbrenningen brenner litt ulikt hver gang */
+  var cylJit = new Float32Array(MAXCYL);    /* tenningsjitter */
+  var prevPh = new Float32Array(MAXCYL);
+  for (var ci = 0; ci < MAXCYL; ci++) {
     cylTrim[ci] = 1 + nrnd() * 0.06;
     cylAmp[ci] = cylTrim[ci];
     cylDec[ci] = 0.052;   /* settes fra cfg.burn ved første syklus */
@@ -355,6 +361,20 @@ function createEngineCore(SR) {
     tIntake = 0, tWhine = 0, tMech = 0, tMufMix = 0.5, tStarter = 0, tFloor = 0,
     tCabin = 0.55, tBoost = 0, tTurbo = 0, tPunch = 0.9, mufA = 0.3;
 
+  /** Tenningsvinkler og bankfordeling ut fra sylinderantallet. */
+  function recalcFiring() {
+    nCyl = cfg.cylinders | 0;
+    if (nCyl < 3) nCyl = 3; else if (nCyl > MAXCYL) nCyl = MAXCYL;
+    var step = 720 / nCyl;
+    var b = cfg.banks && cfg.banks.length ? cfg.banks : [0];
+    singleBank = true;
+    for (var i = 0; i < nCyl; i++) {
+      fireAng[i] = i * step;
+      cylBank[i] = b[i % b.length] ? 1 : 0;
+      if (cylBank[i]) singleBank = false;
+    }
+  }
+
   /* ── koeffisienter som avhenger av cfg ── */
   var hdrDA = 0, hdrDB = 0, midDL = 0, midDR = 0, dampA = 0, dampA2 = 0;
   function recalcGeometry() {
@@ -383,6 +403,7 @@ function createEngineCore(SR) {
     outLPL.lowpass(9000, 0.7); outLPR.lowpass(9150, 0.7);
     outEdgeL.peaking(2300, 0.9, 2.4); outEdgeR.peaking(2360, 0.9, 2.4);
   }
+  recalcFiring();
   recalcGeometry();
 
   function firePop(strength, big) {
@@ -638,7 +659,7 @@ function createEngineCore(SR) {
 
       /* ---- åtte sylindre ---- */
       var bdA = 0, bdB = 0, scA = 0, scB = 0;
-      for (var c = 0; c < 8; c++) {
+      for (var c = 0; c < nCyl; c++) {
         var ph = crank - fireAng[c] - cylJit[c];
         if (ph < 0) ph += 720; else if (ph >= 720) ph -= 720;
 
@@ -657,11 +678,12 @@ function createEngineCore(SR) {
           var sc = 0;
           if (ph > 26) { var y = (ph - 26) * 0.004464; if (y < 1) sc = sinT(y * 0.5); }
           var am = cylAmp[c];
-          if (cfg.banks[c] === 0) { bdA += bd * am; scA += sc * am; }
+          if (cylBank[c] === 0) { bdA += bd * am; scA += sc * am; }
           else { bdB += bd * am; scB += sc * am; }
         }
       }
 
+      if (singleBank) { bdB = bdA; scB = scA; }
       var exA = bdA * sCombAmp + scA * sPumpAmp;
       var exB = bdB * sCombAmp + scB * sPumpAmp;
 
@@ -821,6 +843,7 @@ function createEngineCore(SR) {
       for (var key in p) { if (p[key] !== undefined && p[key] !== null) cfg[key] = p[key]; }
       if (!cfg.gears || !cfg.gears.length) cfg.gears = [3.42, 2.14, 1.45, 1.09, 0.85, 0.69];
       if (gear >= cfg.gears.length) gear = cfg.gears.length - 1;
+      recalcFiring();
       recalcGeometry();
     },
 

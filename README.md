@@ -139,8 +139,24 @@ halv gass ut som halv gass i hele fartsregisteret.
 * **MUSCLE V8** — 6,2 l crossplane, rette rør. Dyp, lopete, mye smell.
 * **TRACK V8** — 4,5 l flatplane opp til 8600. Eksotisk hyl i stedet for rumling.
 * **BLOWN V8** — crossplane med kompressorhyl.
+* **JDM TURBO** — 2,6 l rekkesekser, twin-turbo, opp til 8000. Turboen er lyden.
 
 Bytt i innstillingene (tannhjulet oppe til høyre).
+
+### Hvorfor en sekser låter helt annerledes
+
+`cylinders` bestemmer hvor mange tenninger som fordeles på de 720 veivgradene
+i en arbeidssyklus. En V8 fyrer fire ganger per omdreining, en rekkesekser tre —
+og fordi seksuerens tenninger er *perfekt* jevne, finnes det ingen halv- eller
+kvartordens ujevnhet å rumle på. All energien samles på grunntonen, og det er
+derfor den hyler turbinaktig i stedet for å rumle amerikansk.
+
+Målt ved samme test: V8-ene topper på 4 tenninger per omdreining, JDM-profilen
+på 3, og dens grunntone er nesten tre ganger sterkere enn V8-enes.
+
+Ligger alle tenningene på bank 0 er motoren enbanks — det finnes bare én
+manifold. Modellen mater da begge halerørene fra samme strøm, med ulik
+rørlengde og hver sin turbulens, akkurat som et todelt anlegg bak én turbo.
 
 ## Kom i gang
 

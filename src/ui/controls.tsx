@@ -226,9 +226,10 @@ const s = StyleSheet.create({
   },
   meterFill: { height: '100%', borderRadius: 4 },
 
-  chipRow: { flexDirection: 'row', gap: 8 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '45%',
     paddingVertical: 11,
     borderRadius: 14,
     alignItems: 'center',

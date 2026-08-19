@@ -90,6 +90,12 @@ function vehicle(redlineRpm: number, gears = 6) {
 
      Crossplane  [0,1,1,0,1,0,0,1]  bank A fyrer 270-180-90-180°  -> ujevnt
      Flatplane   [0,1,0,1,0,1,0,1]  bank A fyrer 180-180-180-180° -> jevnt
+     Rekkesekser [0,0,0,0,0,0]      alle i én manifold, jevnt hver 120°
+
+   Ligger alle tenningene på bank 0 er motoren enbanks: det finnes bare én
+   manifold, og eksosen deler seg først bak samlerøret. Modellen håndterer
+   det ved å mate begge halerørene fra samme strøm, med ulik rørlengde og
+   hver sin turbulens — akkurat som et ekte todelt anlegg bak én turbo.
 */
 
 export const PROFILES: EngineProfile[] = [
@@ -100,6 +106,7 @@ export const PROFILES: EngineProfile[] = [
     accent: '#FF7A2F',
     redlineRpm: 6400,
     dsp: {
+      cylinders: 8,
       banks: [0, 1, 1, 0, 1, 0, 0, 1],
       idleRpm: 700,
       maxRpm: 6400,
@@ -137,6 +144,7 @@ export const PROFILES: EngineProfile[] = [
     accent: '#FFD23F',
     redlineRpm: 8600,
     dsp: {
+      cylinders: 8,
       banks: [0, 1, 0, 1, 0, 1, 0, 1],
       idleRpm: 900,
       maxRpm: 8600,
@@ -173,6 +181,7 @@ export const PROFILES: EngineProfile[] = [
     accent: '#48E5C2',
     redlineRpm: 6600,
     dsp: {
+      cylinders: 8,
       banks: [0, 1, 1, 0, 1, 0, 0, 1],
       idleRpm: 760,
       maxRpm: 6600,
@@ -200,6 +209,51 @@ export const PROFILES: EngineProfile[] = [
       shiftUpLow: 2350,
       shiftUpHigh: 6100,
       ...vehicle(6600),
+    },
+  },
+  {
+    id: 'jdm',
+    name: 'JDM TURBO',
+    tagline: '2,6 L rekkesekser · twin-turbo',
+    accent: '#4D8DFF',
+    redlineRpm: 8000,
+    dsp: {
+      /* Rekkesekser i RB26-ånden: seks jevne tenninger hver 120°, alle i én
+         manifold. Den perfekt jevne tenningen er grunnen til at en rekkesekser
+         hyler turbinaktig i stedet for å rumle som en V8 — det finnes ingen
+         halv- eller kvartordens ujevnhet å rumle på. */
+      cylinders: 6,
+      banks: [0, 0, 0, 0, 0, 0],
+      idleRpm: 850,
+      maxRpm: 8000,
+      limitRpm: 7800,
+      /* korte primærrør og lite potte — turboene sitter tett på */
+      headerLen: 0.72,
+      midLen: 1.62,
+      reflection: 0.36,
+      midReflection: 0.22,
+      damping: 2600,
+      muffler: 0.18,
+      crossover: 0.5,
+      burn: 0.105,
+      /* turboen ER lyden på denne */
+      turbo: 0.95,
+      punch: 1.0,
+      growl: 3.5,
+      rumble: 1.5,
+      rasp: 5.5,
+      intake: 0.45,
+      whine: 0,
+      /* turbomotorer smeller mindre på motorbrems enn en sugemotor med
+         rette rør, men de smeller hardt i girskiftene */
+      popRate: 0.75,
+      popGain: 0.95,
+      idleLope: 0.4,
+      combVar: 0.55,
+      torquePeak: 4800,
+      shiftUpLow: 2600,
+      shiftUpHigh: 7400,
+      ...vehicle(8000),
     },
   },
 ];
