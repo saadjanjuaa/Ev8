@@ -331,7 +331,7 @@ function createEngineCore(SR) {
   var boost = 0;                 /* 0-1, med treghet i oppspolingen */
   var whistlePh = 0;
   var whistleSVF = new SVF(), bovSVF = new SVF(), bovSVF2 = new SVF();
-  var crackSVF = new SVF(), crackF = 0;
+  var boomLP1 = new OnePole(), boomLP2 = new OnePole(), boomA = 0;
 
   /* flutter-plyst etter avblåsing */
   var CHN = 5;
@@ -441,7 +441,7 @@ function createEngineCore(SR) {
        kupéfilteret, som ville spist hele plystringen. */
     directLP.lowpass(11000, 0.7);
     directHP.highpass(380, 0.7);
-    crackF = svfF(1050);
+    boomA = poleA(135);
   }
   recalcFiring();
   recalcGeometry();
@@ -462,7 +462,7 @@ function createEngineCore(SR) {
       popE2[k] = 1;                                  /* dunken etterpå */
       popAmp[k] = strength * (0.6 + urnd() * 0.7) * cfg.popGain;
       /* knallet er kort og bredbåndet: 3-8 ms, det er der «hardheten» bor */
-      popMul[k] = Math.exp(-(85 + urnd() * 120) * invSR);
+      popMul[k] = Math.exp(-(150 + urnd() * 170) * invSR);
       /* dunken henger igjen 60-180 ms og gir tyngden */
       popMul2[k] = Math.exp(-(big ? 14 + urnd() * 12 : 26 + urnd() * 24) * invSR);
       popFq[k] = big ? (52 + urnd() * 38) : (78 + urnd() * 62);
@@ -790,19 +790,25 @@ function createEngineCore(SR) {
       }
 
       /* ---- smell: mates INN i eksosrøret ---- */
-      var pL = 0, pR = 0, pCrack = 0;
+      var pL = 0, pR = 0, pCrack = 0, pBoom = 0;
       for (var k = 0; k < POPN; k++) {
         if (!popOn[k]) continue;
         popE[k] *= popMul[k];
         popE2[k] *= popMul2[k];
         if (popE2[k] < 0.0012) { popOn[k] = 0; continue; }
-        popPh[k] += popFq[k] * invSR;
-        var crack = nrnd() * popE[k] * popE[k] * popAmp[k] * 3.4;
-        var thump = sinT(popPh[k]) * popE2[k] * popAmp[k] * 1.5;
-        var pv = thump + crack * 0.5;
-        pL += pv * (1 - popPan[k]);
-        pR += pv * popPan[k];
+        var e1 = popE[k] * popE[k];
+        /* knallet: rå bredbåndet støy, ingen resonans som kan ringe */
+        var crack = nrnd() * e1 * popAmp[k] * 3.8;
+        /* trykkbølgen: støy som lavpassfiltreres etterpå, ikke en sinustone */
+        pBoom += nrnd() * popE2[k] * popAmp[k];
+        pL += crack * (1 - popPan[k]) * 0.5;
+        pR += crack * popPan[k] * 0.5;
         pCrack += crack;
+      }
+      if (pBoom !== 0) {
+        var boom = boomLP2.lp(boomLP1.lp(pBoom, boomA), boomA) * 17;
+        pL += boom; pR += boom;
+        pCrack += boom * 0.55;
       }
 
       /* ---- bølgeleder: header per bank ---- */
@@ -814,9 +820,7 @@ function createEngineCore(SR) {
       /* ---- H-rør + doble midtrør ---- */
       var inL = hA + hB * xo + pL;
       var inR = hB + hA * xo + pR;
-      if (pCrack !== 0) {
-        direct += (crackSVF.band(pCrack, crackF, 0.62) * 1.5 + pCrack * 0.55) * 0.9;
-      }
+      direct += pCrack * 1.15;      /* knallet rett ut, ufarget */
 
       var mL = midL.read(midDL);
       midL.write(inL - midLPL.lp(mL, dampA2) * mrefl);
