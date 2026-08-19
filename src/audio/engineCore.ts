@@ -529,7 +529,8 @@ function createEngineCore(SR) {
       popBurst(1 + ((urnd() * 2.6) | 0), 0.55 + throttle * 0.75);
     } else {
       shiftT = 0.26;
-      blipT = 0.17;                          /* mellomgass */
+      /* Mellomgass bare når du girer ned for å kjøre — ikke på vei mot rødt lys */
+      if (accel > -0.6) blipT = 0.17;
       if (urnd() < 0.75) popBurst(1, 0.45 + throttle * 0.4);
     }
     pushEvent('shift', dir);
@@ -540,7 +541,11 @@ function createEngineCore(SR) {
     speed += (speedIn - speed) * clamp(dt * 7.5, 0, 1);
     var dv = (speed - speedPrev) / Math.max(dt, 1e-4);
     speedPrev = speed;
-    var aMix = accelIn * 0.6 + dv * 0.4;
+    /* Akselerometeret er raskt, men fortegnet er bare så godt som den
+       lærte framoverretningen — og tar den feil, «gasser» motoren mens du
+       bremser. Farten er treg, men fortegnet er alltid riktig. Derfor
+       veier farten tyngst, og akselerometeret bidrar med det raske. */
+    var aMix = accelIn * 0.35 + dv * 0.65;
     accel += (aMix - accel) * clamp(dt * 8, 0, 1);
 
     /* ---- gasspådrag estimert fra kjøringen ---- */
@@ -559,8 +564,13 @@ function createEngineCore(SR) {
     var dragLoad = clamp(speed / 34, 0, 0.28);          /* luftmotstand ved fart */
     var aDemand = clamp(accel / aRef, -2, 2);
     var demand = clamp(dragLoad + (1 - dragLoad) * aDemand, 0, 1);
-    if (accel < -0.35) demand = 0;                       /* slipp gass / brems */
-    if (blipT > 0) demand = 0.85;                        /* mellomgass ved nedgir */
+    /* Faller farten, er foten av gassen. Dette leses av farten alene, ikke
+       av akselerometeret, så det gjelder uansett hvordan telefonen ligger. */
+    if (dv < -0.25 || accel < -0.35) demand = 0;
+    /* Mellomgass ved nedgir hører hjemme når du girer ned for å kjøre
+       videre — ikke når du bremser inn mot et lyskryss. Da er det bare
+       en motor som gasser av seg selv. */
+    if (blipT > 0 && dv > -0.4) demand = 0.55;
     if (throttleOverride >= 0) demand = throttleOverride;
     var trate = demand > throttle ? 11 : 5.5;
     throttle += (demand - throttle) * clamp(dt * trate, 0, 1);
@@ -580,10 +590,17 @@ function createEngineCore(SR) {
     var ratio = cfg.gears[gear] * cfg.finalDrive;
     var rpmWheels = wheelRps * 60 * ratio;
 
-    if (state === ST_RUN && shiftT <= 0 && gearTime > 0.6) {
-      var upAt = cfg.shiftUpLow + throttle * (cfg.shiftUpHigh - cfg.shiftUpLow);
-      var dnAt = 1250 + throttle * 1450;
-      if (rpmWheels > upAt && accel > -0.25) startShift(1);
+    if (state === ST_RUN && shiftT <= 0 && gearTime > 1.2) {
+      /* Girpunktet følger gassen i tredje potens, ikke rett linje. En ekte
+         sjåfør girer rundt 2200 når han sluser, og drar den til sperren
+         bare når han faktisk står på. Med en rett linje havnet halv gass
+         midt imellom, og da lå bilen på 4000 omdreininger i byen. */
+      var t3 = throttle * throttle * throttle;
+      var upAt = cfg.shiftUpLow + t3 * (cfg.shiftUpHigh - cfg.shiftUpLow);
+      /* Nedgirpunktet må ligge under turtallet et oppgir ville gitt, ellers
+         girer bilen opp og ned om hverandre. */
+      var dnAt = Math.min(1150 + t3 * 1250, upAt * 0.62);
+      if (rpmWheels > upAt && dv > -0.25) startShift(1);
       else if (rpmWheels < dnAt && speed > 1.2) startShift(-1);
     }
 
@@ -597,8 +614,18 @@ function createEngineCore(SR) {
        tar igjen — akkurat som når du slipper clutchen fra stillstand. */
     ratio = cfg.gears[gear] * cfg.finalDrive;
     rpmWheels = wheelRps * 60 * ratio;
+    /* Clutchen slurer bare ved igangkjøring og i selve girskiftet. Resten
+       av tiden sitter motoren fast i hjulene, og turtallet ER farten delt
+       på utvekslingen — ikke noe annet.
+
+       Før lå det et «fritt» turtall fra gassen oppå hele tiden. Siden
+       gassen er ANSLÅTT fra akselerasjonen, og anslaget vandrer, vandret
+       turtallet med — motoren revet i vei ved lave turtall uten at noe i
+       kjøringen tilsa det. Det var den revingen som hørtes gal ut. */
     var freeRpm = cfg.idleRpm + idleWob + throttle * (cfg.maxRpm * 0.45 - cfg.idleRpm);
-    var target = rpmWheels > freeRpm ? rpmWheels : freeRpm;
+    var slipping = speed < 2.5 || shiftT > 0 || state !== ST_RUN;
+    var target = slipping ? (rpmWheels > freeRpm ? rpmWheels : freeRpm) : rpmWheels;
+    if (target < cfg.idleRpm) target = cfg.idleRpm + idleWob;
     /* motoren står aldri helt stille i turtall — også ved marsjfart «puster» den */
     target += idleWob * (0.25 + 0.75 * (1 - clamp(speed * 0.1, 0, 1)));
 
