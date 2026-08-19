@@ -553,8 +553,27 @@ input[type=range]::-moz-range-thumb {
     lastMotion: 0, lastFix: 0,
     gpsSpeed: 0, gpsPrev: 0, gpsAccel: 0,
     accuracy: 0, hasFix: false,
-    permission: 'ukjent', motionOn: false
+    permission: 'ukjent', motionOn: false,
+    /* forklaring til brukeren når posisjon ikke kan leses i det hele tatt */
+    blocked: '', watchId: null
   };
+
+  /* Nettleseren gir bare posisjon til en side som kjøres på toppnivå over
+     https. To ting hindrer det i praksis, og begge er umulige å komme rundt
+     fra siden selv — derfor sier vi rett ut hva som er galt i stedet for å
+     bli stående på «Søker GPS». */
+  function gpsBlockedReason() {
+    if (!navigator.geolocation) return 'Nettleseren har ikke posisjonstjeneste.';
+    if (!window.isSecureContext)
+      return 'Siden må åpnes over https. Åpnet som lokal fil gir nettleseren aldri posisjon.';
+    try {
+      if (window.top !== window.self)
+        return 'Siden kjører inne i en ramme som ikke får lese posisjon. Åpne den fra en egen https-adresse.';
+    } catch (e) {
+      return 'Siden kjører inne i en ramme som ikke får lese posisjon. Åpne den fra en egen https-adresse.';
+    }
+    return '';
+  }
 
   function onMotion(d) {
     var now = Date.now();
@@ -626,6 +645,13 @@ input[type=range]::-moz-range-thumb {
   }
 
   function startSensors() {
+    /* Kalles både fra startknappen og når demomodus slås av, så den må
+       tåle å kjøres flere ganger uten å legge igjen doble lyttere. */
+    if (S.watchId !== null) { navigator.geolocation.clearWatch(S.watchId); S.watchId = null; }
+
+    S.blocked = gpsBlockedReason();
+    if (S.blocked) { S.permission = 'sperret'; autoDemo(); return; }
+
     /* iOS krever eksplisitt samtykke til bevegelsessensoren,
        og det må skje fra et trykk. Derfor kalles dette fra startknappen. */
     var DME = window.DeviceMotionEvent;
@@ -637,13 +663,28 @@ input[type=range]::-moz-range-thumb {
       window.addEventListener('devicemotion', onMotion); S.motionOn = true;
     }
 
-    if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(onFix, function (err) {
-        S.permission = err.code === 1 ? 'nektet' : 'feil';
-      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
-    } else {
-      S.permission = 'mangler';
-    }
+    S.watchId = navigator.geolocation.watchPosition(onFix, function (err) {
+      if (err.code === 1) {
+        S.permission = 'nektet';
+        /* Kode 1 dekker to helt ulike ting: at du sa nei, og at siden aldri
+           fikk lov til å spørre. Meldingsteksten skiller dem. */
+        S.blocked = /permission|policy|disabled/i.test(err.message || '')
+          ? 'Nettleseren sperrer posisjon for denne siden. Åpne den fra en egen https-adresse.'
+          : 'Du sa nei til posisjon. Gi tilgang i nettleserens innstillinger for denne siden.';
+        autoDemo();
+      } else {
+        S.permission = 'feil';
+      }
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  }
+
+  /* Kan vi ikke lese farten, er demomodus det eneste som gir lyd. Slå den
+     på selv i stedet for å la brukeren stå med en stille motor. */
+  function autoDemo() {
+    if (demo) return;
+    demo = true;
+    $('demoSwitch').classList.add('on');
+    $('demoWrap').style.display = 'block';
   }
 
   /* hold skjermen våken i bilen */
@@ -815,7 +856,9 @@ input[type=range]::-moz-range-thumb {
     /* status */
     var dot = $('statusDot'), txt = $('statusText');
     if (demo) { txt.textContent = 'Demo'; dot.style.background = 'var(--ink-dim)'; }
-    else if (S.permission === 'nektet') { txt.textContent = 'GPS nektet'; dot.style.background = 'var(--red)'; }
+    else if (S.permission === 'sperret' || S.permission === 'nektet') {
+      txt.textContent = 'GPS sperret'; dot.style.background = 'var(--red)';
+    }
     else if (!S.hasFix) { txt.textContent = running ? 'Søker GPS' : 'GPS klar'; dot.style.background = 'var(--amber)'; }
     else {
       txt.textContent = 'GPS ±' + S.accuracy + ' m';
@@ -827,7 +870,8 @@ input[type=range]::-moz-range-thumb {
     else if (!audioMode) foot.textContent = 'Starter lydmotoren …';
     else {
       var extra = (!demo && S.motionOn && S.fwdMag > 0 && S.fwdMag <= 0.48) ? ' · kalibrerer retning' : '';
-      if (!demo && !S.motionOn) { foot.textContent = 'Sanntidssyntese · ' + audioMode + ' · uten bevegelsessensor'; foot.className = 'foot warn'; }
+      if (S.blocked) { foot.textContent = S.blocked + ' Demomodus er slått på.'; foot.className = 'foot warn'; }
+      else if (!demo && !S.motionOn) { foot.textContent = 'Sanntidssyntese · ' + audioMode + ' · uten bevegelsessensor'; foot.className = 'foot warn'; }
       else { foot.textContent = 'Sanntidssyntese · ' + audioMode + extra; foot.className = 'foot'; }
     }
   }
