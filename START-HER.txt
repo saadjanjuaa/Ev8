@@ -1,0 +1,61 @@
+EV8 — motorlyd som følger farten
+════════════════════════════════
+
+APPEN — DENNE GIR DEG EKTE GPS
+──────────────────────────────
+    npm install
+    npx expo start
+
+Skann QR-koden med Kamera-appen. Telefonen og maskinen må være på samme
+Wi-Fi. Er nettet vrient, kjør  npx expo start --tunnel  i stedet — da
+spiller nettverket ingen rolle.
+
+I Expo Go bruker appen telefonens egen posisjonstjeneste. Ingen hosting,
+ingen https-krav, ingen kostnad.
+
+VIKTIG OM SDK-VERSJON
+Prosjektet står på Expo SDK 54, fordi det er den Expo Go på telefonen
+støtter. Expo Go i App Store ligger langt bak npm — hver nye Expo Go må
+gjennom Apples godkjenning. Legger du prosjektet på en nyere SDK enn
+telefonens Expo Go, nektes det med «requires a newer version of Expo Go»,
+uansett hvor oppdatert Expo Go er.
+
+Ikke gjett. Åpne Expo Go, les av «supported SDK», og treff den nøyaktig.
+
+To ting du vil se i terminalen, begge ufarlige:
+  · «tsconfig.json#include property has been updated» — Expo skriver om
+    fila selv. Bare støy i git status.
+  · «Unable to run simctl … code 72» — den leter etter iOS-simulator på
+    maskinen. Irrelevant når du kjører på telefon.
+
+
+NETTVERSJONEN
+─────────────
+web/ev8.html er den samme appen som én fil. Den må åpnes fra en
+https-adresse: nettleseren gir ikke posisjon til en side som åpnes som
+lokal fil, og heller ikke til en side som kjører inne i en ramme. Vil du
+ha ekte fart uten hosting, bruk appen over i stedet.
+
+
+EN EKTE APP-FIL
+───────────────
+    npm install -g eas-cli
+    eas login
+    eas build -p ios --profile preview      (krever Apple-utviklerkonto)
+    eas build -p android --profile preview
+
+Med Expo Go henter telefonen koden fra maskinen din over Wi-Fi. Kjører du
+hjemmefra og appen blir drept, får den den ikke igjen. Til ordentlig
+kjøring vil du ha en eas build.
+
+
+HVOR LYDEN BOR
+──────────────
+  src/audio/engineCore.ts   hele motormodellen — tenning, eksosrør,
+                            potte, smell, turbo, avblåsingsventil
+  src/audio/profiles.ts     bilen (e-Golf) og de fire motorprofilene
+  src/audio/testDrive.ts    testsekvensen
+  scripts/build-web.mjs     bygger web/ev8.html av det samme
+
+Både appen og nettsiden bruker nøyaktig samme DSP-kildekode, så de kan
+ikke drifte fra hverandre. Endrer du lyden, kjør build-web.mjs etterpå.
