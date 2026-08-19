@@ -216,7 +216,16 @@ function createEngineCore(SR) {
     popRate: 1.0,
     popGain: 1.0,
     idleLope: 1.0,
-    combVar: 1.0,           /* sylindervariasjon */
+    combVar: 1.0,           /* tilfeldig variasjon fra syklus til syklus */
+    /* Fast forskjell mellom sylindrene. Denne gjentar seg hver andre
+       omdreining og lager derfor halvordenen — linja på halve tennings-
+       frekvensen. Tilfeldig variasjon gir bare bredbåndet ujevnhet og
+       ingen slik linje, så de to feltene gjør hver sin jobb. */
+    trim: 0.06,
+    /* Fast nivåjustering per motor. Profilene er tunet hver for seg mot
+       ulike opptak, og da lander de ikke på samme styrke av seg selv. Uten
+       denne hopper volumet når du bytter motor. */
+    levelTrim: 1,
     gears: [3.42, 2.14, 1.45, 1.09, 0.85, 0.69],
     finalDrive: 3.31,
     tireCirc: 2.02,         /* m per hjulomdreining */
@@ -243,6 +252,7 @@ function createEngineCore(SR) {
   var fuelCut = 1, fuelCutT = 0;
   var shiftT = 0, shiftDir = 0, blipT = 0;
   var limiterT = 0, popGapT = 0;
+  var coast = 0, coastT = 0;         /* ruller på tomgang: 0 = under last, 1 = fritt */
   var clockSec = 0;
   var crankT = 0, crankDur = 0.8, stopT = 0;
   var idleWob = 0, idleWobTarget = 0, idleWobT = 0;
@@ -409,6 +419,11 @@ function createEngineCore(SR) {
     nCyl = cfg.cylinders | 0;
     if (nCyl < 3) nCyl = 3; else if (nCyl > MAXCYL) nCyl = MAXCYL;
     var step = 720 / nCyl;
+    var spread = typeof cfg.trim === 'number' ? cfg.trim : 0.06;
+    for (var q = 0; q < nCyl; q++) {
+      cylTrim[q] = 1 + nrnd() * spread;
+      cylAmp[q] = cylTrim[q];
+    }
     var b = cfg.banks && cfg.banks.length ? cfg.banks : [0];
     singleBank = true;
     for (var i = 0; i < nCyl; i++) {
@@ -709,16 +724,33 @@ function createEngineCore(SR) {
       thrSlow = throttle;
     }
 
+    /* ---- ruller den, eller drar den? ----
+       Med foten av gassen og farten stabil gjør motoren nesten ikke arbeid.
+       Da suger den lite luft, og eksosen blir vesentlig stillere — det er
+       forskjellen på å rulle i 60 og å dra i 60. Modellen hadde bare
+       turtall å gå etter og lot begge deler låte likt.
+
+       Vilkåret er gass nede og fart som holder seg. Det slår inn etter et
+       drøyt halvsekund og er fullt gjennomført etter to, slik at en kort
+       gasslipp mellom to pådrag ikke rekker å dempe noe. Kommer gassen
+       tilbake, er dempingen borte med en gang. */
+    var ruller = throttle < 0.12 && dv > -0.9 && dv < 0.35 && state === ST_RUN;
+    coastT = ruller ? coastT + dt : 0;
+    var coastTarget = ruller ? clamp((coastT - 0.6) / 1.4, 0, 1) : 0;
+    coast += (coastTarget - coast) * clamp(dt * (coastTarget > coast ? 1.6 : 9), 0, 1);
+
     var tq = 0.82 + 0.30 * sinT(clamp(rpm / (cfg.torquePeak * 2), 0, 1) * 0.5);
     tBoost = boost;
     tTurbo = cfg.turbo;
     var thrEff = throttle;
-    tCombAmp = (0.21 + 0.79 * thrEff) * fuelCut * tq;
+    tCombAmp = (0.21 + 0.79 * thrEff) * fuelCut * tq * (1 - coast * 0.38);
     tPumpAmp = 0.12 + 0.17 * rpmN;
-    tNoiseAmp = 0.16 + 0.30 * thrEff;
+    tNoiseAmp = (0.16 + 0.30 * thrEff) * (1 - coast * 0.3);
     tFloor = 0.004 + 0.016 * rpmN;
     tDrive = 1.05 + thrEff * 0.85 + rpmN * 0.5;
-    tLevel = (0.44 + 0.60 * rpmN) * (state === ST_OFF ? 0 : 1);
+    tLevel = (0.44 + 0.60 * rpmN) * (1 - coast * 0.42)
+      * (typeof cfg.levelTrim === 'number' ? cfg.levelTrim : 1)
+      * (state === ST_OFF ? 0 : 1);
     tIntake = cfg.intake * Math.pow(thrEff, 0.7) * (0.25 + 0.85 * rpmN);
     tWhine = cfg.whine * (0.15 + 0.85 * thrEff) * Math.pow(rpmN, 1.3);
     tMech = 0.018 + 0.022 * rpmN;
@@ -1055,7 +1087,7 @@ function createEngineCore(SR) {
       boost = 0; bovE = 0; bovCool = 0; thrSlow = 0;
       for (var z1 = 0; z1 < CHN; z1++) chOn[z1] = 0;
       rpm = 90; gear = 0; gearTime = 1; speed = 0; speedPrev = 0;
-      throttle = 0; fuelCut = 1; limEnv = 0;
+      throttle = 0; fuelCut = 1; limEnv = 0; coast = 0; coastT = 0;
       pushEvent('cranking', 1);
     },
 

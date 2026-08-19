@@ -256,6 +256,65 @@ export const PROFILES: EngineProfile[] = [
       ...vehicle(8000),
     },
   },
+  {
+    id: 'golfr',
+    name: 'GOLF R',
+    tagline: '2,0 L rekkefirer · turbo',
+    accent: '#8E7BFF',
+    redlineRpm: 6800,
+    dsp: {
+      /* Bygget på måling av et ekte Golf R-opptak, ikke på gjetning.
+
+         Tenningsfrekvensen gikk fra 27 til 182 Hz gjennom opptaket. En
+         firesylindret firetakter fyrer to ganger per omdreining, så 27 Hz
+         er tomgang på 810 og 182 Hz er 5460 o/min. Det er en rekkefirer,
+         og alle fire går i samme manifold fram til turboen.
+
+         Klangen er hentet fra partier der turtallet står helt stille —
+         under en akselerasjon vandrer tonehøyden inne i målevinduet og
+         smører alle linjene ut. Tre slike partier (2190, 2340 og 3060
+         o/min) ga samme svar: sterk grunntone, og alt over den mye
+         svakere enn på en sugemotor med rette rør. Derfor lite rasp,
+         kraftig demping i røret og en potte som faktisk demper. */
+      cylinders: 4,
+      banks: [0, 0, 0, 0],
+      idleRpm: 810,
+      maxRpm: 6800,
+      limitRpm: 6600,
+      headerLen: 0.84,
+      midLen: 2.40,
+      reflection: 0.37,
+      midReflection: 0.40,
+      damping: 528,
+      muffler: 0.61,
+      crossover: 0.64,
+      burn: 0.043,
+      turbo: 0.85,
+      punch: 0.49,
+      /* Målt båndbalanse rundt 200-500 Hz: +5 under 90 Hz, +4 på 90-200,
+         -7 på 500-1200, -13 på 1,2-3k, -20 på 3-7k, -29 over 7k. Tyngden
+         ligger lavt, men det er ingen V8-rumling — bare en kompakt bunn. */
+      growl: 3.8,
+      rumble: 4.6,
+      rasp: 0.33,
+      intake: 0.21,
+      whine: 0,
+      /* Halvordenen lå 23 dB under tenningstonen. Den kommer av at
+         sylindrene ikke er helt like, og gjentar seg hver andre
+         omdreining — derfor fast trim, ikke tilfeldig variasjon. */
+      trim: 0.35,
+      combVar: 0.8,
+      levelTrim: 0.32,
+      idleLope: 0.6,
+      /* Golf R spraker på motorbrems, og det er hørbart i opptaket. */
+      popRate: 1.4,
+      popGain: 3.0,
+      torquePeak: 3000,
+      shiftUpLow: 2100,
+      shiftUpHigh: 6200,
+      ...vehicle(6800, 7),
+    },
+  },
 ];
 
 export const DEFAULT_PROFILE_ID = 'muscle';
