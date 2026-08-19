@@ -514,11 +514,11 @@ function createEngineCore(SR) {
     if (dir > 0) {
       shiftT = 0.30;
       fuelCutT = 0.075 + urnd() * 0.03;      /* tenningskutt = «bark» */
-      popBurst(3 + ((urnd() * 3.2) | 0), 0.85 + throttle * 0.8);
+      popBurst(1 + ((urnd() * 2.6) | 0), 0.55 + throttle * 0.75);
     } else {
       shiftT = 0.26;
       blipT = 0.17;                          /* mellomgass */
-      popBurst(1 + ((urnd() * 2.4) | 0), 0.7 + throttle * 0.5);
+      if (urnd() < 0.75) popBurst(1, 0.45 + throttle * 0.4);
     }
     pushEvent('shift', dir);
   }
