@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
   gearIcon: { color: T.muted, fontSize: 15, marginTop: Platform.OS === 'ios' ? -1 : 0 },
 
   tachArea: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 180 },
-  tachCenter: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  tachCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   gearBig: { fontSize: 54, fontWeight: '900', lineHeight: 58, letterSpacing: -1 },
   rpmBig: { color: T.text, fontSize: 27, fontWeight: '800', marginTop: 2, letterSpacing: 0.5 },
   rpmUnit: { color: T.muted, fontSize: 9.5, fontWeight: '800', letterSpacing: 2, marginTop: 3 },
@@ -524,7 +524,7 @@ const styles = StyleSheet.create({
   error: { color: T.red, fontSize: 11, textAlign: 'center' },
   foot: { color: 'rgba(255,255,255,0.28)', fontSize: 10, textAlign: 'center', letterSpacing: 0.6 },
 
-  sheetWrap: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
+  sheetWrap: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
   sheet: { maxHeight: '82%', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
   sheetHandle: {
     alignSelf: 'center',

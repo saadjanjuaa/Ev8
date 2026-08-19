@@ -247,7 +247,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   powerBorder: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth * 2,
   },

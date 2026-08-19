@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.glass,
   },
   hairline: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     borderWidth: StyleSheet.hairlineWidth * 2,
     borderColor: T.border,
   },
