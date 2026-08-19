@@ -38,6 +38,15 @@ interface Disp {
   limiter: boolean;
 }
 
+function SensorItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.sensorItem}>
+      <Text style={styles.sensorLabel}>{label}</Text>
+      <Text style={[styles.sensorValue, numeric]}>{value}</Text>
+    </View>
+  );
+}
+
 const ZERO: Disp = { rpm: 0, gear: 1, kmh: 0, throttle: 0, lit: 0, state: 0, shift: 0, limiter: false };
 
 export default function DriveScreen() {
@@ -51,6 +60,14 @@ export default function DriveScreen() {
   const [cabin, setCabin] = useState(0.55);
   const [demo, setDemo] = useState(false);
   const [demoKmh, setDemoKmh] = useState(0);
+  /* Gåtest: farten fra GPS ganges opp, så du kan gå eller sykle og høre
+     det som kjøring. Hele kjeden testes — GPS, bevegelsessensor, fusjon,
+     girkasse, lyd — uten at du må ut på veien. */
+  const [walkScale, setWalkScale] = useState(1);
+  const [showSensors, setShowSensors] = useState(false);
+  const [sens, setSens] = useState({
+    speed: 0, gpsSpeed: 0, accel: 0, accuracy: 0, headingLock: 0, fixAge: 0,
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [audioMode, setAudioMode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,16 +83,32 @@ export default function DriveScreen() {
   const latest = useRef<EngineState | null>(null);
   const demoRef = useRef({ kmh: 0, prev: 0, t: Date.now() });
   demoRef.current.kmh = demoKmh;
+  /* matingen kjører i et intervall som ikke ser ny state, så den leses av en ref */
+  const walkRef = useRef(1);
+  walkRef.current = walkScale;
 
-  /* ── lydsesjon: spill i stillemodus, i bakgrunnen, og ut på bilstereoen ── */
-  useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: true,
-      interruptionMode: 'mixWithOthers',
-      allowsRecording: false,
-    }).catch(() => { });
-  }, []);
+  /* ── lydsesjon: spill i stillemodus, i bakgrunnen, og ut på bilstereoen ──
+
+     interruptionMode er det som avgjør om lyden i det hele tatt når fram.
+     'mixWithOthers' ber IKKE om lydfokus: appen legger seg oppå en strøm
+     noen andre holder åpen. Er det ingen slik strøm, blir det stumt — og
+     det var derfor motoren bare hørtes når Spotify spilte samtidig.
+
+     'doNotMix' tar fokus. Da åpner telefonen strømmen mot bilstereoen for
+     appen selv, og lyden er der uten at noe annet må spille. Prisen er at
+     musikk pauses mens motoren går, men motoren spiller sammenhengende —
+     den skal eie lyden mens den er på. */
+  const armAudioSession = useCallback(
+    () =>
+      setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'doNotMix',
+        allowsRecording: false,
+      }).catch(() => { }),
+    [],
+  );
+  useEffect(() => { armAudioSession(); }, [armAudioSession]);
 
   /* ── profil / volum / kupé sendes ned til DSP-en ── */
   useEffect(() => {
@@ -137,7 +170,11 @@ export default function DriveScreen() {
         engine.current?.setInput(ms, a);
       } else {
         const s = sample.current;
-        engine.current?.setInput(s.speed, s.accel);
+        /* Akselerasjonen ganges med samme faktor som farten. Ellers ville
+           gassanslaget lest en oppganget fart med gåfart-akselerasjon, og
+           bilen hadde hørtes ut som den ruller i fri. */
+        const k = walkRef.current;
+        engine.current?.setInput(s.speed * k, s.accel * k);
       }
     }, 1000 / FEED_HZ);
     return () => clearInterval(id);
@@ -179,6 +216,23 @@ export default function DriveScreen() {
     return () => clearInterval(id);
   }, [running, profile.redlineRpm]);
 
+  /* Sensorpanelet oppdateres sjelden — det skal leses, ikke flimre. */
+  useEffect(() => {
+    if (!running || demo || !showSensors) return;
+    const id = setInterval(() => {
+      const s = sample.current;
+      setSens({
+        speed: s.speed,
+        gpsSpeed: s.gpsSpeed,
+        accel: s.accel,
+        accuracy: s.accuracy,
+        headingLock: s.headingLock,
+        fixAge: s.fixAge,
+      });
+    }, 250);
+    return () => clearInterval(id);
+  }, [running, demo, showSensors, sample]);
+
   const onEngineState = useCallback((s: EngineState) => {
     latest.current = s;
   }, []);
@@ -189,11 +243,15 @@ export default function DriveScreen() {
       setRunning(false);
     } else {
       setError(null);
+      /* Økta bes om på nytt ved hver start. iOS river den ned etter en
+         telefonsamtale eller når bilen kobles til, og da må den hentes
+         tilbake — ikke bare settes opp én gang da appen startet. */
+      armAudioSession();
       engine.current?.setProfile({ ...profile.dsp, volume, cabin });
       engine.current?.start();
       setRunning(true);
     }
-  }, [running, profile, volume, cabin]);
+  }, [running, profile, volume, cabin, armAudioSession]);
 
   const toggleTest = useCallback(() => {
     if (test.current) {
@@ -245,7 +303,8 @@ export default function DriveScreen() {
       statusLabel = running ? 'SØKER GPS' : 'GPS KLAR';
       statusDot = '#F5A623';
     } else {
-      statusLabel = `GPS ±${status.accuracy} m`;
+      statusLabel =
+        walkScale > 1 ? `GÅTEST ×${walkScale}` : `GPS ±${status.accuracy} m`;
       statusDot = status.headingLock > 0.6 ? T.green : '#F5A623';
     }
   }
@@ -374,6 +433,21 @@ export default function DriveScreen() {
           onPress={toggleRunning}
         />
 
+        {showSensors && !demo ? (
+          <GlassCard style={styles.sensorCard} radius={16}>
+            <View style={styles.sensorGrid}>
+              <SensorItem label="GPS" value={`${(sens.gpsSpeed * 3.6).toFixed(0)} km/t`} />
+              <SensorItem label="FUSJONERT" value={`${(sens.speed * 3.6).toFixed(0)} km/t`} />
+              <SensorItem label="TIL MOTOR" value={`${(sens.speed * 3.6 * walkScale).toFixed(0)} km/t`} />
+              <SensorItem label="AKSELERASJON" value={`${sens.accel.toFixed(1)} m/s²`} />
+              <SensorItem label="NØYAKTIGHET" value={`±${Math.round(sens.accuracy)} m`} />
+              <SensorItem label="RETNING LÆRT" value={`${Math.round(sens.headingLock * 100)} %`} />
+              <SensorItem label="SIDEN GPS" value={`${sens.fixAge.toFixed(1)} s`} />
+              <SensorItem label="GIR / TURTALL" value={`${disp.gear} · ${disp.rpm}`} />
+            </View>
+          </GlassCard>
+        ) : null}
+
         <Text style={styles.foot}>
           {audioMode === 'worklet'
             ? 'Sanntidssyntese · lydtråd'
@@ -454,6 +528,44 @@ export default function DriveScreen() {
                 Styr farten med en skyvebryter for å teste lyden mens du står stille.
               </Text>
 
+              <View style={styles.sheetRow}>
+                <Text style={styles.cardLabel}>GÅTEST</Text>
+                <Text style={[styles.scaleValue, numeric]}>
+                  {walkScale > 1 ? `× ${walkScale}` : 'AV'}
+                </Text>
+              </View>
+              <Slider
+                value={walkScale}
+                minimumValue={1}
+                maximumValue={15}
+                step={1}
+                onValueChange={setWalkScale}
+                minimumTrackTintColor={profile.accent}
+                maximumTrackTintColor="rgba(255,255,255,0.15)"
+                thumbTintColor={profile.accent}
+                style={styles.slider}
+              />
+              <Text style={styles.hint}>
+                Ganger opp farten fra GPS. Med × 10 høres gange i 5 km/t ut som
+                50 km/t. Da kan du teste posisjon, bevegelsessensor, girkasse og
+                lyd ute på fortauet i stedet for i bilen. Sett den til AV før du
+                kjører på ordentlig.
+              </Text>
+
+              <View style={styles.sheetRow}>
+                <Toggle
+                  on={showSensors}
+                  label="VIS SENSORVERDIER"
+                  accent={profile.accent}
+                  onPress={() => setShowSensors((v) => !v)}
+                />
+              </View>
+              <Text style={styles.hint}>
+                Rå GPS-fart mot fusjonert fart, hvor gammelt siste GPS-punkt er,
+                og hvor godt appen har lært hvilken vei som er framover. Henger
+                lyden etter, står svaret her.
+              </Text>
+
               <Pressable
                 onPress={() => setSettingsOpen(false)}
                 style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
@@ -515,6 +627,12 @@ const styles = StyleSheet.create({
   speedRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 4 },
   speedBig: { color: T.text, fontSize: 40, fontWeight: '900', letterSpacing: -1.5 },
   speedUnit: { color: T.muted, fontSize: 12, fontWeight: '700' },
+
+  sensorCard: { marginTop: 10 },
+  sensorGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  sensorItem: { width: '50%', paddingVertical: 4 },
+  sensorLabel: { color: T.muted, fontSize: 9, fontWeight: '700', letterSpacing: 0.9 },
+  sensorValue: { color: T.text, fontSize: 13, fontWeight: '700' },
 
   demoCard: {},
   demoHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
