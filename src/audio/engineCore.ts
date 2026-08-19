@@ -320,6 +320,7 @@ function createEngineCore(SR) {
   /* smell/spraking */
   var POPN = 12;
   var popE = new Float32Array(POPN), popMul = new Float32Array(POPN),
+    popE2 = new Float32Array(POPN), popMul2 = new Float32Array(POPN),
     popAmp = new Float32Array(POPN), popFq = new Float32Array(POPN),
     popPh = new Float32Array(POPN), popPan = new Float32Array(POPN),
     popOn = new Uint8Array(POPN);
@@ -330,6 +331,27 @@ function createEngineCore(SR) {
   var boost = 0;                 /* 0-1, med treghet i oppspolingen */
   var whistlePh = 0;
   var whistleSVF = new SVF(), bovSVF = new SVF(), bovSVF2 = new SVF();
+  var crackSVF = new SVF(), crackF = 0;
+
+  /* flutter-plyst etter avblåsing */
+  var CHN = 5;
+  var chOn = new Uint8Array(CHN), chDelay = new Float32Array(CHN),
+    chE = new Float32Array(CHN), chMul = new Float32Array(CHN),
+    chPh = new Float32Array(CHN), chF = new Float32Array(CHN),
+    chFDec = new Float32Array(CHN), chAmp = new Float32Array(CHN);
+  var chSVF = [];
+  for (var chi = 0; chi < CHN; chi++) chSVF.push(new SVF());
+
+  function fireChirp(delay, freq, amp, dur) {
+    for (var k = 0; k < CHN; k++) {
+      if (chOn[k]) continue;
+      chOn[k] = 1; chDelay[k] = delay; chE[k] = 1; chAmp[k] = amp;
+      chPh[k] = 0; chF[k] = freq;
+      chMul[k] = Math.exp(-(4.2 / dur) * invSR);
+      chFDec[k] = Math.exp(-(0.55 / dur) * invSR);
+      return;
+    }
+  }
   var bovE = 0, bovMul = 0, bovAmp = 0, bovFreq = 0, bovFDec = 1, bovCool = 0;
   var thrSlow = 0;
   var limEnv = 0;
@@ -350,6 +372,15 @@ function createEngineCore(SR) {
     bovMul = Math.exp(-(3.2 / dur) * invSR);
     bovFreq = 1500 + strength * 1500;
     bovFDec = Math.exp(-(1.6 / dur) * invSR);
+
+    /* to til fire plyst som faller i tonehøyde, med luft imellom */
+    var nCh = 2 + ((urnd() * 2.7) | 0);
+    var f0 = 3800 + strength * 2600;
+    var d = 0.055 + urnd() * 0.03;
+    for (var c = 0; c < nCh; c++) {
+      fireChirp(d, f0 * (1 - c * 0.13), strength * (0.95 - c * 0.16), 0.075 + urnd() * 0.05);
+      d += 0.075 + urnd() * 0.055;
+    }
     pushEvent('bov', Math.round(strength * 100) / 100);
   }
 
@@ -408,8 +439,9 @@ function createEngineCore(SR) {
     /* Direktebussen: turbohyl og avblåsing. Bare en mild takning i toppen
        og et høypass som holder den unna bassen — ellers går den urørt forbi
        kupéfilteret, som ville spist hele plystringen. */
-    directLP.lowpass(7200, 0.7);
-    directHP.highpass(420, 0.7);
+    directLP.lowpass(11000, 0.7);
+    directHP.highpass(380, 0.7);
+    crackF = svfF(1050);
   }
   recalcFiring();
   recalcGeometry();
@@ -426,11 +458,14 @@ function createEngineCore(SR) {
     for (var k = 0; k < POPN; k++) {
       if (popOn[k]) continue;
       popOn[k] = 1;
-      popE[k] = 1;
-      popAmp[k] = strength * (0.45 + urnd() * 0.85) * cfg.popGain;
-      var dec = big ? (48 + urnd() * 40) : (170 + urnd() * 320);
-      popMul[k] = Math.exp(-dec * invSR);
-      popFq[k] = big ? (65 + urnd() * 65) : (170 + urnd() * 520);
+      popE[k] = 1;                                   /* knallet */
+      popE2[k] = 1;                                  /* dunken etterpå */
+      popAmp[k] = strength * (0.6 + urnd() * 0.7) * cfg.popGain;
+      /* knallet er kort og bredbåndet: 3-8 ms, det er der «hardheten» bor */
+      popMul[k] = Math.exp(-(85 + urnd() * 120) * invSR);
+      /* dunken henger igjen 60-180 ms og gir tyngden */
+      popMul2[k] = Math.exp(-(big ? 14 + urnd() * 12 : 26 + urnd() * 24) * invSR);
+      popFq[k] = big ? (52 + urnd() * 38) : (78 + urnd() * 62);
       popPh[k] = 0;
       popPan[k] = clamp(0.5 + nrnd() * 0.5, 0, 1);
       return;
@@ -644,7 +679,7 @@ function createEngineCore(SR) {
     tNoiseAmp = 0.16 + 0.30 * thrEff;
     tFloor = 0.004 + 0.016 * rpmN;
     tDrive = 1.05 + thrEff * 0.85 + rpmN * 0.5;
-    tLevel = (0.52 + 0.72 * rpmN) * (state === ST_OFF ? 0 : 1);
+    tLevel = (0.44 + 0.60 * rpmN) * (state === ST_OFF ? 0 : 1);
     tIntake = cfg.intake * Math.pow(thrEff, 0.7) * (0.25 + 0.85 * rpmN);
     tWhine = cfg.whine * (0.15 + 0.85 * thrEff) * Math.pow(rpmN, 1.3);
     tMech = 0.018 + 0.022 * rpmN;
@@ -755,15 +790,19 @@ function createEngineCore(SR) {
       }
 
       /* ---- smell: mates INN i eksosrøret ---- */
-      var pL = 0, pR = 0;
+      var pL = 0, pR = 0, pCrack = 0;
       for (var k = 0; k < POPN; k++) {
         if (!popOn[k]) continue;
         popE[k] *= popMul[k];
-        if (popE[k] < 0.0015) { popOn[k] = 0; continue; }
+        popE2[k] *= popMul2[k];
+        if (popE2[k] < 0.0012) { popOn[k] = 0; continue; }
         popPh[k] += popFq[k] * invSR;
-        var pv = (nrnd() * 0.85 + sinT(popPh[k]) * 0.55) * popE[k] * popAmp[k];
+        var crack = nrnd() * popE[k] * popE[k] * popAmp[k] * 3.4;
+        var thump = sinT(popPh[k]) * popE2[k] * popAmp[k] * 1.5;
+        var pv = thump + crack * 0.5;
         pL += pv * (1 - popPan[k]);
         pR += pv * popPan[k];
+        pCrack += crack;
       }
 
       /* ---- bølgeleder: header per bank ---- */
@@ -775,7 +814,9 @@ function createEngineCore(SR) {
       /* ---- H-rør + doble midtrør ---- */
       var inL = hA + hB * xo + pL;
       var inR = hB + hA * xo + pR;
-      direct += (pL + pR) * 0.22;      /* knallet, før røret farger det */
+      if (pCrack !== 0) {
+        direct += (crackSVF.band(pCrack, crackF, 0.62) * 1.5 + pCrack * 0.55) * 0.9;
+      }
 
       var mL = midL.read(midDL);
       midL.write(inL - midLPL.lp(mL, dampA2) * mrefl);
@@ -810,14 +851,24 @@ function createEngineCore(SR) {
           var bb = sBoost - 0.16;
           if (bb > 0) {
             var wLoud = bb * bb * 2.2;
-            var fWh = 1400 + sBoost * 4200 + rpmCur * 0.16;
+            var fWh = 2400 + sBoost * 3800 + rpmCur * 0.18;
             whistlePh += fWh * invSR; if (whistlePh > 1) whistlePh -= 1;
-            var wTone = sinT(whistlePh) * 0.5 + sinT(whistlePh * 2) * 0.16;
-            /* q = 0,16 var nesten selvsvingende og ga et skrik. 0,55 gir
-               luftig plystring i stedet for en ren tone. */
-            var wAir = whistleSVF.band(nrnd(), svfF(fWh), 0.55);
-            direct += (wTone * 0.8 + wAir * 2.0) * wLoud * sTurbo * 1.15;
+            /* tonen bærer plystringen, støyen er bare pusten rundt den */
+            var wTone = sinT(whistlePh) * 0.8 + sinT(whistlePh * 2) * 0.22;
+            var wAir = whistleSVF.band(nrnd(), svfF(fWh), 0.3);
+            direct += (wTone * 1.5 + wAir * 0.9) * wLoud * sTurbo * 1.9;
           }
+        }
+        for (var ci2 = 0; ci2 < CHN; ci2++) {
+          if (!chOn[ci2]) continue;
+          if (chDelay[ci2] > 0) { chDelay[ci2] -= invSR; continue; }
+          chE[ci2] *= chMul[ci2];
+          if (chE[ci2] < 0.0025) { chOn[ci2] = 0; continue; }
+          chF[ci2] *= chFDec[ci2];
+          chPh[ci2] += chF[ci2] * invSR; if (chPh[ci2] > 1) chPh[ci2] -= 1;
+          var cTone = sinT(chPh[ci2]) * 0.85 + sinT(chPh[ci2] * 2) * 0.18;
+          var cAir = chSVF[ci2].band(nrnd(), svfF(chF[ci2]), 0.26);
+          direct += (cTone * 1.3 + cAir * 0.8) * chE[ci2] * chAmp[ci2] * sTurbo * 1.05;
         }
         if (bovE > 0.0008) {
           bovE *= bovMul;
@@ -880,9 +931,15 @@ function createEngineCore(SR) {
       yL = inL * sCabin + exL * (1 - sCabin);
       yR = inR * sCabin + exR * (1 - sCabin);
 
+      /* Motornivået skaleres FØR direktebussen legges på. Ellers vokser
+         motoren og smellene i takt, og knallet får aldri plass å stikke
+         opp i — det er derfor de hørtes små ut uansett hvor hardt de ble
+         laget. Nå ligger motoren lavere og smellene beholder full høyde. */
+      yL *= sLevel; yR *= sLevel;
       if (direct !== 0) {
         var dOut = directLP.run(directHP.run(direct));
-        yL += dOut; yR += dOut * 0.94;   /* nesten senter, men ikke helt */
+        var dScale = 0.55 + 0.45 * sLevel;     /* følger av/på, ikke turtall */
+        yL += dOut * dScale; yR += dOut * dScale * 0.94;
       }
 
       /* ---- liten romfølelse ---- */
@@ -891,14 +948,25 @@ function createEngineCore(SR) {
       revB.write(yR * 0.5 + revLPb.lp(ra, 0.42) * 0.12);
       yL += ra * 0.025; yR += rb * 0.025;
 
-      yL *= sLevel * vol; yR *= sLevel * vol;
+      yL *= vol; yR *= vol;
 
       /* ---- limiter (koblet stereo) ---- */
+      /* Limiteren styrer nivået, men den skal IKKE spise smellene.
+         Med momentan innsvingning ble hvert knall klemt ned til terskelen
+         uansett hvor hardt det var laget. Nå bruker den ca. 1,5 ms på å ta
+         tak, så selve anslaget slipper gjennom — og en myk metning like
+         under taket runder av det som stikker over i stedet for å kutte
+         det firkantet. */
       var pk = Math.abs(yL) > Math.abs(yR) ? Math.abs(yL) : Math.abs(yR);
-      if (pk > limEnv) limEnv += (pk - limEnv) * 0.88;
+      if (pk > limEnv) limEnv += (pk - limEnv) * 0.055;
       else limEnv += (pk - limEnv) * 0.0009;
-      var g = limEnv > 0.84 ? 0.84 / limEnv : 1;
+      var g = limEnv > 0.78 ? 0.78 / limEnv : 1;
       yL *= g; yR *= g;
+
+      if (yL > 0.9) yL = 0.9 + (yL - 0.9) / (1 + (yL - 0.9) * 11);
+      else if (yL < -0.9) yL = -0.9 + (yL + 0.9) / (1 - (yL + 0.9) * 11);
+      if (yR > 0.9) yR = 0.9 + (yR - 0.9) / (1 + (yR - 0.9) * 11);
+      else if (yR < -0.9) yR = -0.9 + (yR + 0.9) / (1 - (yR + 0.9) * 11);
 
       outL[i] = yL < -1 ? -1 : (yL > 1 ? 1 : yL);
       outR[i] = yR < -1 ? -1 : (yR > 1 ? 1 : yR);
@@ -932,6 +1000,7 @@ function createEngineCore(SR) {
       if (state === ST_RUN || state === ST_CRANK) return;
       state = ST_CRANK; crankT = 0; crankDur = 0.55 + urnd() * 0.35;
       boost = 0; bovE = 0; bovCool = 0; thrSlow = 0;
+      for (var z1 = 0; z1 < CHN; z1++) chOn[z1] = 0;
       rpm = 90; gear = 0; gearTime = 1; speed = 0; speedPrev = 0;
       throttle = 0; fuelCut = 1; limEnv = 0;
       pushEvent('cranking', 1);

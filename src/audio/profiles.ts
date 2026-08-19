@@ -127,7 +127,7 @@ export const PROFILES: EngineProfile[] = [
       intake: 0.26,
       whine: 0,
       popRate: 1.15,
-      popGain: 2.6,
+      popGain: 3.4,
       idleLope: 1.35,
       combVar: 1.25,
       torquePeak: 3400,
@@ -165,7 +165,7 @@ export const PROFILES: EngineProfile[] = [
       intake: 0.4,
       whine: 0,
       popRate: 1.0,
-      popGain: 2.0,
+      popGain: 3.6,
       idleLope: 0.55,
       combVar: 0.7,
       torquePeak: 5600,
@@ -247,7 +247,7 @@ export const PROFILES: EngineProfile[] = [
       /* turbomotorer smeller mindre på motorbrems enn en sugemotor med
          rette rør, men de smeller hardt i girskiftene */
       popRate: 0.75,
-      popGain: 2.2,
+      popGain: 3.0,
       idleLope: 0.4,
       combVar: 0.55,
       torquePeak: 4800,

@@ -105,9 +105,38 @@ plysterområdet 1,4–6 kHz:
 | MUSCLE V8 | **+12,6 dB** | ±0,3 dB |
 | JDM TURBO | **+9,5 dB** | ±0,2 dB |
 
+**Plystringen må være tonal.** Bredt filter på støy gir bare vind. Tonen bærer
+plystringen og støyen er pusten rundt den — ikke omvendt. Frekvensen ligger nå
+på 2,4–6,2 kHz.
+
+**Avblåsingen plystrer flere ganger.** Ventilen og kompressoren pumper mot
+hverandre, så det kommer 2–4 korte plyst som faller i tonehøyde etter det første
+luftutbruddet — «pshh-tu-tu-tu», ikke ett jevnt sus.
+
 Styres med skyvebryteren **TURBO** i innstillingene, fra av til maks.
 
 ## Smell
+
+Hvert smell er **to ting samtidig**: et bredbåndet knall på 8–12 ms formet rundt
+1 kHz, og en lav dunk på 50–140 Hz som ligger igjen i 100 ms etterpå. Ett enkelt
+avklingende støyutbrudd — som det var før — blir et leketøysplopp uansett hvor
+høyt det skrus.
+
+To ting til måtte til for at de skulle slå hardt:
+
+**Knallet går delvis utenom røret og metningen.** Ellers blir anslaget klemt
+flatt av båndsplittmetningen før det når ut.
+
+**Motornivået skaleres før direktebussen legges på.** Ellers vokser motoren og
+smellene i takt, og knallet får aldri plass å stikke opp i. Det var derfor de
+hørtes små ut uansett hvor mye `popGain` ble skrudd opp.
+
+**Limiteren bruker 1,5 ms på å ta tak** i stedet for å reagere momentant. Med
+momentan innsvingning ble hvert eneste knall klemt ned til terskelen. En myk
+metning like under taket runder av det som stikker over.
+
+Målt på ett enkelt smell mot tomgang: 16,1 dB over motoren, og varighet over
+dobbelt motornivå gikk fra 29 til 114 ms — altså et smell med kropp, ikke et tikk.
 
 Smellene fyres gjennom en kø med ekte avstand imellom, og en sperretid på 55 ms
 som gjelder alle kilder. Uten den ble en «serie» avfyrt på nøyaktig samme sample
