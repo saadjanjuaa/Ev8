@@ -46,6 +46,23 @@ tyngdepunkt under full gass:
 | Blanding (standard) | 428 Hz |
 | Bare kupé | 325 Hz |
 
+## Tydelige pulser
+
+Tre ting avgjør om du hører hver enkelt tenning eller bare én sammenhengende
+grøt:
+
+* **`burn`** — hvor fort forbrenningspulsen klinger av, målt per veivgrad.
+  Kortere puls gir mer stillhet mellom tenningene.
+* **`punch`** — transientforsterker. To omhyllingsfølgere med ulik hastighet;
+  der den raske ligger over den trege har det skjedd noe brått, altså en
+  tenning, og akkurat det øyeblikket løftes. Ligger før metningen, ellers
+  spiser metningen løftet opp igjen.
+* **Pumpestrømmen** mellom pulsene, som fyller igjen stillheten hvis den står
+  for høyt.
+
+Målt modulasjonsdybde i omhyllingen ved tenningsfrekvensen: 14,9 → 18,6 % ved
+50 km/t og 11,4 → 15,3 % ved 90 km/t.
+
 ## Bunn og bråk
 
 Metningen legges bare på det ØVRE båndet. Signalet deles ved 170 Hz, bassen
@@ -65,17 +82,33 @@ Målt frekvensbalanse ved 80 km/t, som viser hva de to grepene gjorde:
 | Før | −47,6 dB | −70,4 dB | 22,8 dB | 282 Hz |
 | Nå | −45,3 dB | −76,8 dB | 31,5 dB | 166 Hz |
 
+## Turbo
+
+Ladetrykket bygger seg opp med gass og turtall, med treghet — turboen må spole.
+Når du slipper gassen mens trykket står på, åpner **avblåsingsventilen** og
+overtrykket freser ut: et bredt støyutbrudd som synker i frekvens etter hvert
+som trykket faller. Over det ligger **kompressorhylet**, en tone pluss luft som
+følger ladetrykket.
+
+Styres med skyvebryteren **TURBO** i innstillingene, fra av til maks.
+
 ## Testkjøring
 
 Knappen **TESTKJØRING** spiller av en skriptet tur uten at du beveger deg:
 
 ```
-tomgang  →  0–50 km/t med halv gass  →  50–100 km/t med pedalen i gulvet
-         →  hold 100  →  slipp gassen og rull ned med spraking
+tomgang
+0–50 km/t     rolig akselerasjon
+50–30 km/t    slipp gassen   ->  avblåsingsventilen freser
+30 km/t       hold
+30–100 km/t   80 % gass      ->  turboen bygger trykk, girskift
+100–30 km/t   slipp gassen   ->  avblåsing igjen, spraking, nedgir
+inn til stopp
+tre gasspådrag på tomgang
 ```
 
-Farten integreres opp fra bilens faktiske akselerasjonsevne, så 0–50 tar 6,6 s
-på halv gass og 50–100 tar 4,7 s på full — som en ekte e-Golf. Testen mates inn
+Farten integreres opp fra bilens faktiske akselerasjonsevne, ikke fra en fast
+kurve — som en ekte e-Golf. Testen mates inn
 i lydmotoren på nøyaktig samme vei som ekte GPS-data, så girkasse, gasspådrag og
 smell oppfører seg identisk med virkelig kjøring. Trykk en gang til for å avbryte.
 

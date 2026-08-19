@@ -62,6 +62,7 @@ export default function DriveScreen() {
 
   const [testLabel, setTestLabel] = useState<string | null>(null);
   const test = useRef<TestRun | null>(null);
+  const lastOverride = useRef(-1);
   const latest = useRef<EngineState | null>(null);
   const demoRef = useRef({ kmh: 0, prev: 0, t: Date.now() });
   demoRef.current.kmh = demoKmh;
@@ -108,12 +109,19 @@ export default function DriveScreen() {
         const engineReady = latest.current?.state === 2;
         const tick = stepTestRun(t, 1 / FEED_HZ, engineReady);
         engine.current?.setInput(tick.speed, tick.accel);
+        /* gasspådraget overstyres bare under revs-fasen */
+        if (tick.throttle !== lastOverride.current) {
+          lastOverride.current = tick.throttle;
+          engine.current?.setThrottle(tick.throttle);
+        }
         setTestLabel((p) => {
           const next = TEST_LABELS[t.phase];
           return p === next ? p : next;
         });
         if (tick.done) {
           test.current = null;
+          lastOverride.current = -1;
+          engine.current?.setThrottle(-1);
           setTestLabel(null);
         }
         return;
@@ -190,6 +198,8 @@ export default function DriveScreen() {
   const toggleTest = useCallback(() => {
     if (test.current) {
       test.current = null;
+      lastOverride.current = -1;
+      engine.current?.setThrottle(-1);
       setTestLabel(null);
       return;
     }
@@ -207,6 +217,7 @@ export default function DriveScreen() {
   useEffect(() => {
     if (!running && test.current) {
       test.current = null;
+      lastOverride.current = -1;
       setTestLabel(null);
     }
   }, [running]);

@@ -154,6 +154,23 @@ function createEngineCore(SR) {
     );
   };
 
+  /* ── tilstandsvariabelt filter (Chamberlin) ──
+     Frekvensen kan moduleres per sample uten å regne om koeffisienter,
+     som er akkurat det avblåsingsventilens nedadgående sveip trenger. */
+  function SVF() { this.lp = 0; this.bp = 0; }
+  SVF.prototype.band = function (x, f, q) {
+    this.lp += f * this.bp;
+    var hp = x - this.lp - q * this.bp;
+    this.bp += f * hp;
+    if (this.bp > 8) this.bp = 8; else if (this.bp < -8) this.bp = -8;
+    return this.bp;
+  };
+  /** frekvenskoeffisient til SVF-en, uten Math.sin i lydsløyfa */
+  function svfF(hz) {
+    var f = 2 * sinT(clamp(hz, 20, SR * 0.32) * invSR * 0.5);
+    return f > 1.4 ? 1.4 : f;
+  }
+
   /* ── Schroeder-allpass (potte-diffusjon) ── */
   function AP(lenSamples, g) {
     this.d = new Delay((lenSamples | 0) + 4);
@@ -184,6 +201,10 @@ function createEngineCore(SR) {
     damping: 3000,          /* Hz — rørdemping */
     muffler: 0.5,           /* 0 = rett rør, 1 = stille */
     crossover: 0.34,        /* H-rør: hvor mye bankene deler */
+    burn: 0.052,            /* pulsens avklingning per veivgrad — høyere = kortere,
+                               skarpere puls med mer stillhet imellom */
+    turbo: 0.0,             /* 0-1: kompressorhyl og avblåsingsventil */
+    punch: 0.9,             /* transientløft — hvor tydelig hver tenning står fram */
     growl: 6.5,             /* dB — lavhylle under 120 Hz */
     rumble: 5.0,            /* dB @ 62 Hz — der V8-rumlingen sitter */
     rasp: 4.0,              /* dB @ 1.3 kHz, skaleres med gass */
@@ -232,7 +253,7 @@ function createEngineCore(SR) {
   for (var ci = 0; ci < 8; ci++) {
     cylTrim[ci] = 1 + nrnd() * 0.06;
     cylAmp[ci] = cylTrim[ci];
-    cylDec[ci] = 0.052;
+    cylDec[ci] = 0.052;   /* settes fra cfg.burn ved første syklus */
     cylJit[ci] = nrnd() * 0.7;
     prevPh[ci] = 0;
   }
@@ -259,6 +280,12 @@ function createEngineCore(SR) {
   var splitL1 = new OnePole(), splitL2 = new OnePole();
   var splitR1 = new OnePole(), splitR2 = new OnePole();
   var splitA = poleA(170);
+  /* Transientforsterker. To omhyllingsfølgere med ulik hastighet: der den
+     raske ligger over den trege, skjer det noe brått — altså en tenning.
+     Differansen brukes til å løfte akkurat det øyeblikket, så pulsene står
+     fram i stedet for å smelte sammen. */
+  var fastL = 0, slowL = 0, fastR = 0, slowR = 0;
+  var punchFast = poleA(210), punchSlow = poleA(11);
   var eqBodyL = new BQ(), eqBodyR = new BQ();
   var eqRaspL = new BQ(), eqRaspR = new BQ();
   /* To mikrofonperspektiver som kjorer parallelt paa samme eksossignal:
@@ -290,12 +317,33 @@ function createEngineCore(SR) {
     popOn = new Uint8Array(POPN);
 
   var whinePh = 0, whinePh2 = 0, starterPh = 0;
+
+  /* turbo */
+  var boost = 0;                 /* 0-1, med treghet i oppspolingen */
+  var whistlePh = 0;
+  var whistleSVF = new SVF(), bovSVF = new SVF();
+  var bovE = 0, bovMul = 0, bovAmp = 0, bovFreq = 0, bovFDec = 1, bovCool = 0;
+  var thrSlow = 0;
   var limEnv = 0;
 
   /* utjevnede parametere (per sample, unngår zipper-støy) */
+  var sPunch = 0;
   var sCombAmp = 0, sPumpAmp = 0.5, sNoiseAmp = 0.4, sDrive = 1,
     sLevel = 1, sIntake = 0, sWhine = 0, sMech = 0, sMufMix = 0.5, sStarter = 0,
-    sFloor = 0, sCabin = 0.55;
+    sFloor = 0, sCabin = 0.55, sBoost = 0, sTurbo = 0;
+
+  /* Avblåsingsventilen åpner når du slipper gassen mens turboen fortsatt
+     står på trykk. Lyden er luft som slippes ut: et bredt støyutbrudd som
+     synker i frekvens etter hvert som trykket faller. */
+  function fireBOV(strength) {
+    bovE = 1;
+    bovAmp = strength;
+    var dur = 0.20 + strength * 0.34;
+    bovMul = Math.exp(-(3.2 / dur) * invSR);
+    bovFreq = 1500 + strength * 1500;
+    bovFDec = Math.exp(-(1.6 / dur) * invSR);
+    pushEvent('bov', Math.round(strength * 100) / 100);
+  }
 
   var evQueue = [];
   function pushEvent(name, value) {
@@ -305,7 +353,7 @@ function createEngineCore(SR) {
   /* måltall for lydparametere, satt av updateVehicle, glattet i render */
   var tCombAmp = 0, tPumpAmp = 0.5, tNoiseAmp = 0.4, tDrive = 1, tLevel = 0,
     tIntake = 0, tWhine = 0, tMech = 0, tMufMix = 0.5, tStarter = 0, tFloor = 0,
-    tCabin = 0.55, mufA = 0.3;
+    tCabin = 0.55, tBoost = 0, tTurbo = 0, tPunch = 0.9, mufA = 0.3;
 
   /* ── koeffisienter som avhenger av cfg ── */
   var hdrDA = 0, hdrDB = 0, midDL = 0, midDR = 0, dampA = 0, dampA2 = 0;
@@ -496,12 +544,34 @@ function createEngineCore(SR) {
       }
     }
 
-    /* ---- måltall for lydparametere ---- */
+    /* ---- turbo ----
+       Ladetrykket bygger seg sakte opp (turboen må spole) og faller fort
+       når gassen slippes. Det er nettopp det trykket som må ut gjennom
+       avblåsingsventilen. */
     var rpmN = clamp(rpm / cfg.maxRpm, 0, 1.1);
+    if (cfg.turbo > 0.001 && state === ST_RUN) {
+      var bTarget = clamp(throttle * (0.2 + 0.8 * rpmN), 0, 1);
+      boost += (bTarget - boost) * clamp(dt * (bTarget > boost ? 1.7 : 5.5), 0, 1);
+      if (bovCool > 0) bovCool -= dt;
+      /* Sammenlign med gassen for et par hundre millisekunder siden, ikke
+         forrige lydblokk — pedalen slippes på et kvart sekund, ikke på 3 ms. */
+      thrSlow += (throttle - thrSlow) * clamp(dt * 3.5, 0, 1);
+      if (throttle < 0.22 && thrSlow > 0.42 && boost > 0.16 && speed > 3.5 && bovCool <= 0) {
+        fireBOV(clamp(boost * 1.3, 0.3, 1));
+        bovCool = 0.7;
+        thrSlow = throttle;
+      }
+    } else {
+      boost += (0 - boost) * clamp(dt * 4, 0, 1);
+      thrSlow = throttle;
+    }
+
     var tq = 0.82 + 0.30 * sinT(clamp(rpm / (cfg.torquePeak * 2), 0, 1) * 0.5);
+    tBoost = boost;
+    tTurbo = cfg.turbo;
     var thrEff = throttle;
     tCombAmp = (0.21 + 0.79 * thrEff) * fuelCut * tq;
-    tPumpAmp = 0.16 + 0.22 * rpmN;
+    tPumpAmp = 0.12 + 0.17 * rpmN;
     tNoiseAmp = 0.16 + 0.30 * thrEff;
     tFloor = 0.004 + 0.016 * rpmN;
     tDrive = 1.05 + thrEff * 0.85 + rpmN * 0.5;
@@ -518,6 +588,7 @@ function createEngineCore(SR) {
     eqRaspL.peaking(1150 + rpmN * 900, 1.0, cfg.rasp * (0.25 + thrEff * 0.9));
     eqRaspR.peaking(1180 + rpmN * 900, 1.0, cfg.rasp * (0.25 + thrEff * 0.9));
     tCabin = clamp(cfg.cabin, 0, 1);
+    tPunch = cfg.punch;
     var ifq = clamp(rpm / 60 * 2.2, 80, 900);
     intakeBP.bandpass(ifq, 1.2);
     mufA = poleA(1500 + thrEff * 3200 + rpmN * 1800);
@@ -557,6 +628,9 @@ function createEngineCore(SR) {
       sStarter += (tStarter - sStarter) * smooth * 0.5;
       sFloor += (tFloor - sFloor) * smooth;
       sCabin += (tCabin - sCabin) * smooth;
+      sBoost += (tBoost - sBoost) * smooth;
+      sTurbo += (tTurbo - sTurbo) * smooth;
+      sPunch += (tPunch - sPunch) * smooth;
 
       /* ---- veivaksel ---- */
       crank += rpmCur * 6 * invSR;
@@ -572,7 +646,7 @@ function createEngineCore(SR) {
         if (prevPh[c] < 500 && ph >= 500) {
           cylAmp[c] = cylTrim[c] * (1 + nrnd() * 0.11 * cfg.combVar);
           cylJit[c] = nrnd() * 0.8 * cfg.combVar;
-          cylDec[c] = 0.052 * (1 + nrnd() * 0.16 * cfg.combVar);
+          cylDec[c] = cfg.burn * (1 + nrnd() * 0.16 * cfg.combVar);
         }
         prevPh[c] = ph;
 
@@ -651,6 +725,22 @@ function createEngineCore(SR) {
         mono += (intakeBP.run(nz) * 1.6 + intakeBP2.run(nz) * 0.5) * sIntake;
       }
       mono += mechHP.run((bdA + bdB) * (0.6 + 0.4 * urnd())) * sMech;
+      /* ---- kompressorhyl og avblåsing ---- */
+      if (sTurbo > 0.001) {
+        if (sBoost > 0.01) {
+          var fWh = 820 + sBoost * 2500 + rpmCur * 0.10;
+          whistlePh += fWh * invSR; if (whistlePh > 1) whistlePh -= 1;
+          var wTone = sinT(whistlePh) * 0.62 + sinT(whistlePh * 2) * 0.22;
+          var wAir = whistleSVF.band(nrnd(), svfF(fWh * 1.2), 0.30);
+          mono += (wTone + wAir * 1.7) * sBoost * sBoost * sTurbo * 0.085;
+        }
+        if (bovE > 0.0008) {
+          bovE *= bovMul;
+          bovFreq *= bovFDec;
+          if (bovFreq < 260) bovFreq = 260;
+          mono += bovSVF.band(nrnd(), svfF(bovFreq), 0.5) * bovE * bovAmp * sTurbo * 1.35;
+        }
+      }
       if (sWhine > 0.001) {
         var wf = rpmCur * 0.33;
         whinePh += wf * invSR; if (whinePh > 1) whinePh -= 1;
@@ -673,7 +763,19 @@ function createEngineCore(SR) {
          bunnen står ren og tung, kanten sitter der den skal. */
       var loL = splitL2.lp(splitL1.lp(yL, splitA), splitA);
       var loR = splitR2.lp(splitR1.lp(yR, splitA), splitA);
-      var hiL = (yL - loL) * sDrive, hiR = (yR - loR) * sDrive;
+      var hiL = yL - loL, hiR = yR - loR;
+
+      /* transientløft før metningen, ellers spiser metningen det opp igjen */
+      if (sPunch > 0.001) {
+        var aL = hiL < 0 ? -hiL : hiL, aR = hiR < 0 ? -hiR : hiR;
+        fastL += (aL - fastL) * punchFast; slowL += (aL - slowL) * punchSlow;
+        fastR += (aR - fastR) * punchFast; slowR += (aR - slowR) * punchSlow;
+        var pL = fastL - slowL, pR = fastR - slowR;
+        if (pL > 0) hiL *= 1 + (pL > 0.35 ? 0.35 : pL) * 2.4 * sPunch;
+        if (pR > 0) hiR *= 1 + (pR > 0.35 ? 0.35 : pR) * 2.4 * sPunch;
+      }
+
+      hiL *= sDrive; hiR *= sDrive;
       hiL = hiL / (1 + Math.abs(hiL) * 0.7);
       hiR = hiR / (1 + Math.abs(hiR) * 0.7);
       yL = loL * 1.15 + hiL;
@@ -734,6 +836,7 @@ function createEngineCore(SR) {
     start: function () {
       if (state === ST_RUN || state === ST_CRANK) return;
       state = ST_CRANK; crankT = 0; crankDur = 0.55 + urnd() * 0.35;
+      boost = 0; bovE = 0; bovCool = 0; thrSlow = 0;
       rpm = 90; gear = 0; gearTime = 1; speed = 0; speedPrev = 0;
       throttle = 0; fuelCut = 1; limEnv = 0;
       pushEvent('cranking', 1);
