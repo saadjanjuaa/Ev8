@@ -462,11 +462,58 @@ input[type=range]::-moz-range-thumb {
       'registerProcessor("ev8-engine", EngineProcessor);';
   }
 
+  /* ═══════════════ lyden overlever ruteskifte ═══════════════
+     Kobler du telefonen til bilstereoen mens motoren går, bytter iOS
+     lydutgang under føttene på nettleseren. Lydkonteksten blir avbrutt
+     og starter ikke igjen av seg selv — appen ble stående og se ut som
+     den gikk, uten lyd. Verre: den nye utgangen kan ha en annen
+     punktprøvingsfrekvens enn den konteksten ble laget med, og da
+     hjelper ingen resume(). Da må hele lydgrafen bygges på nytt.
+
+     Derfor: prøv å vekke konteksten, og gi opp og bygg om hvis den ikke
+     våkner. Sjekken går hvert sekund, koster ingenting, og fanger både
+     ruteskifte, telefonsamtaler og at skjermen har vært av. */
+  var audioWatch = null, wakeTries = 0, rebuilding = false;
+
+  function nudgeAudio() {
+    if (!running || !ctx || rebuilding) return;
+    if (ctx.state === 'running') { wakeTries = 0; return; }
+    wakeTries++;
+    try { ctx.resume(); } catch (e) { }
+    /* Tre sekunder uten å våkne: konteksten er tapt, ikke bare pauset. */
+    if (wakeTries >= 3) rebuildAudio();
+  }
+
+  function rebuildAudio() {
+    if (rebuilding) return;
+    rebuilding = true; wakeTries = 0;
+    var old = ctx;
+    ctx = null; node = null; core = null; mode = null; audioMode = null;
+    try { if (old) old.close(); } catch (e) { }
+    buildAudio().then(function () {
+      return ctx.state !== 'running' ? ctx.resume() : null;
+    }).then(function () {
+      send({ t: 'start' });
+      rebuilding = false;
+    }).catch(function () { rebuilding = false; });
+  }
+
+  function watchAudio(on) {
+    if (audioWatch) { clearInterval(audioWatch); audioWatch = null; }
+    if (on) audioWatch = setInterval(nudgeAudio, 1000);
+  }
+
+  /* iOS krever ofte et trykk for å slippe lyden til igjen etter en
+     avbrytelse. Et hvilket som helst trykk på siden holder. */
+  document.addEventListener('pointerdown', function () { nudgeAudio(); }, true);
+  window.addEventListener('pageshow', function () { nudgeAudio(); });
+
   function buildAudio() {
     if (ctx) return Promise.resolve();
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return Promise.reject(new Error('Nettleseren mangler Web Audio.'));
     ctx = new AC({ latencyHint: 'interactive' });
+    ctx.onstatechange = function () { if (running) nudgeAudio(); };
 
     if (!(ctx.audioWorklet && window.AudioWorkletNode)) return buildFallback();
 
@@ -698,7 +745,7 @@ input[type=range]::-moz-range-thumb {
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) {
       if (running) keepAwake(true);
-      if (ctx && ctx.state === 'suspended') ctx.resume();
+      nudgeAudio();
     }
   });
 
@@ -870,7 +917,13 @@ input[type=range]::-moz-range-thumb {
     else if (!audioMode) foot.textContent = 'Starter lydmotoren …';
     else {
       var extra = (!demo && S.motionOn && S.fwdMag > 0 && S.fwdMag <= 0.48) ? ' · kalibrerer retning' : '';
-      if (S.blocked) { foot.textContent = S.blocked + ' Demomodus er slått på.'; foot.className = 'foot warn'; }
+      if (ctx && ctx.state !== 'running') {
+        foot.textContent = rebuilding
+          ? 'Lyden kobles opp mot ny utgang …'
+          : 'Lyden ble avbrutt av bilen — trykk på skjermen.';
+        foot.className = 'foot warn';
+      }
+      else if (S.blocked) { foot.textContent = S.blocked + ' Demomodus er slått på.'; foot.className = 'foot warn'; }
       else if (!demo && !S.motionOn) { foot.textContent = 'Sanntidssyntese · ' + audioMode + ' · uten bevegelsessensor'; foot.className = 'foot warn'; }
       else { foot.textContent = 'Sanntidssyntese · ' + audioMode + extra; foot.className = 'foot'; }
     }
@@ -886,6 +939,7 @@ input[type=range]::-moz-range-thumb {
       $('powerBtn').textContent = 'Slå av motor';
       $('powerBtn').classList.add('running');
       keepAwake(true);
+      watchAudio(true);
       if (!demo) startSensors();
     }).catch(function (e) {
       $('foot').textContent = 'Lyden startet ikke: ' + (e && e.message ? e.message : e);
@@ -896,6 +950,7 @@ input[type=range]::-moz-range-thumb {
   function stopEngine() {
     send({ t: 'stop' });
     running = false;
+    watchAudio(false);
     stopTest();
     $('powerBtn').textContent = 'Start motor';
     $('powerBtn').classList.remove('running');
