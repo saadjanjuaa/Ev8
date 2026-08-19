@@ -326,6 +326,7 @@ function createEngineCore(SR) {
     popOn = new Uint8Array(POPN);
 
   var whinePh = 0, whinePh2 = 0, starterPh = 0;
+  var wobPh = 0;              /* langsom vibrato på turboplystringen */
 
   /* turbo */
   var boost = 0;                 /* 0-1, med treghet i oppspolingen */
@@ -334,7 +335,9 @@ function createEngineCore(SR) {
   var boomLP1 = new OnePole(), boomLP2 = new OnePole(), boomA = 0;
 
   /* flutter-plyst etter avblåsing */
-  var CHN = 5;
+  /* Flutteret er mange overlappende pust, ikke noen få. Målt på et ekte
+     2JZ-opptak: ca. 20 pust i sekundet. Det krever plass til alle. */
+  var CHN = 20;
   var chOn = new Uint8Array(CHN), chDelay = new Float32Array(CHN),
     chE = new Float32Array(CHN), chMul = new Float32Array(CHN),
     chPh = new Float32Array(CHN), chF = new Float32Array(CHN),
@@ -347,8 +350,9 @@ function createEngineCore(SR) {
       if (chOn[k]) continue;
       chOn[k] = 1; chDelay[k] = delay; chE[k] = 1; chAmp[k] = amp;
       chPh[k] = 0; chF[k] = freq;
-      chMul[k] = Math.exp(-(4.2 / dur) * invSR);
-      chFDec[k] = Math.exp(-(0.55 / dur) * invSR);
+      /* dur er halveringstiden til ett pust — målt til ca. 70 ms */
+      chMul[k] = Math.pow(0.5, invSR / dur);
+      chFDec[k] = Math.exp(-(0.25 / dur) * invSR);
       return;
     }
   }
@@ -373,13 +377,19 @@ function createEngineCore(SR) {
     bovFreq = 1500 + strength * 1500;
     bovFDec = Math.exp(-(1.6 / dur) * invSR);
 
-    /* to til fire plyst som faller i tonehøyde, med luft imellom */
-    var nCh = 2 + ((urnd() * 2.7) | 0);
-    var f0 = 3800 + strength * 2600;
-    var d = 0.055 + urnd() * 0.03;
+    /* «Stututu»-en. Tallene under er ikke gjettet, de er målt på et ekte
+       2JZ-flutteropptak: energien ligger på 200-800 Hz (ikke oppe i
+       diskanten), pustene kommer ca. hvert 48. millisekund, og hvert
+       enkelt pust har en halveringstid på rundt 70 ms — så de overlapper
+       hverandre og smelter sammen til stotring i stedet for enkeltplyst. */
+    var nCh = 12;
+    var f0 = 250;
+    var d = 0.035;
     for (var c = 0; c < nCh; c++) {
-      fireChirp(d, f0 * (1 - c * 0.13), strength * (0.95 - c * 0.16), 0.075 + urnd() * 0.05);
-      d += 0.075 + urnd() * 0.055;
+      fireChirp(d, f0 * (1 - c * 0.02) * (0.93 + urnd() * 0.14),
+                strength * 1.15 * (1 - c / nCh * 0.55) * (0.85 + urnd() * 0.3),
+                0.070);
+      d += 0.048 * (0.82 + urnd() * 0.36);
     }
     pushEvent('bov', Math.round(strength * 100) / 100);
   }
@@ -460,11 +470,13 @@ function createEngineCore(SR) {
       popOn[k] = 1;
       popE[k] = 1;                                   /* knallet */
       popE2[k] = 1;                                  /* dunken etterpå */
-      popAmp[k] = strength * (0.6 + urnd() * 0.7) * cfg.popGain;
-      /* knallet er kort og bredbåndet: 3-8 ms, det er der «hardheten» bor */
-      popMul[k] = Math.exp(-(150 + urnd() * 170) * invSR);
-      /* dunken henger igjen 60-180 ms og gir tyngden */
-      popMul2[k] = Math.exp(-(big ? 14 + urnd() * 12 : 26 + urnd() * 24) * invSR);
+      popAmp[k] = strength * (0.6 + urnd() * 0.7) * cfg.popGain * 1.7;
+      /* Knallet er kort: ca. 1,5-3 ms. Jo kortere, jo skarpere — et langt
+         anslag høres mykt og «leketøysaktig» ut. */
+      popMul[k] = Math.exp(-(340 + urnd() * 260) * invSR);
+      /* Trykkbølgen under er også kortet inn — den lange halen var det
+         som gjorde at flere smell etter hverandre smurte seg sammen. */
+      popMul2[k] = Math.exp(-(70 + urnd() * 40) * invSR);
       popFq[k] = big ? (52 + urnd() * 38) : (78 + urnd() * 62);
       popPh[k] = 0;
       popPan[k] = clamp(0.5 + nrnd() * 0.5, 0, 1);
@@ -798,16 +810,18 @@ function createEngineCore(SR) {
         if (popE2[k] < 0.0012) { popOn[k] = 0; continue; }
         var e1 = popE[k] * popE[k];
         /* knallet: rå bredbåndet støy, ingen resonans som kan ringe */
-        var crack = nrnd() * e1 * popAmp[k] * 3.8;
+        var crack = nrnd() * e1 * popAmp[k] * 16;
         /* trykkbølgen: støy som lavpassfiltreres etterpå, ikke en sinustone */
         pBoom += nrnd() * popE2[k] * popAmp[k];
-        pL += crack * (1 - popPan[k]) * 0.5;
-        pR += crack * popPan[k] * 0.5;
+        /* Bare en flik av knallet går inn i eksosrøret. Røret er det som
+           ringer og bobler — sendes mye inn dit, blir smellet mykt. */
+        pL += crack * (1 - popPan[k]) * 0.12;
+        pR += crack * popPan[k] * 0.12;
         pCrack += crack;
       }
       if (pBoom !== 0) {
-        var boom = boomLP2.lp(boomLP1.lp(pBoom, boomA), boomA) * 17;
-        pL += boom; pR += boom;
+        var boom = boomLP2.lp(boomLP1.lp(pBoom, boomA), boomA) * 7;
+        pL += boom * 0.25; pR += boom * 0.25;
         pCrack += boom * 0.55;
       }
 
@@ -820,7 +834,7 @@ function createEngineCore(SR) {
       /* ---- H-rør + doble midtrør ---- */
       var inL = hA + hB * xo + pL;
       var inR = hB + hA * xo + pR;
-      direct += pCrack * 1.15;      /* knallet rett ut, ufarget */
+      direct += pCrack * 6.0;       /* knallet rett ut, ufarget */
 
       var mL = midL.read(midDL);
       midL.write(inL - midLPL.lp(mL, dampA2) * mrefl);
@@ -855,12 +869,13 @@ function createEngineCore(SR) {
           var bb = sBoost - 0.16;
           if (bb > 0) {
             var wLoud = bb * bb * 2.2;
-            var fWh = 2400 + sBoost * 3800 + rpmCur * 0.18;
+            /* Litt vibrato. En helt stø tone høres ut som en signalgenerator;
+               ekte turbiner vandrer noen prosent i tonehøyde. */
+            wobPh += 7.5 * invSR; if (wobPh > 1) wobPh -= 1;
+            var fWh = (3000 + sBoost * 3200 + rpmCur * 0.15) * (1 + sinT(wobPh) * 0.035);
             whistlePh += fWh * invSR; if (whistlePh > 1) whistlePh -= 1;
-            /* tonen bærer plystringen, støyen er bare pusten rundt den */
-            var wTone = sinT(whistlePh) * 0.8 + sinT(whistlePh * 2) * 0.22;
-            var wAir = whistleSVF.band(nrnd(), svfF(fWh), 0.3);
-            direct += (wTone * 1.5 + wAir * 0.9) * wLoud * sTurbo * 1.9;
+            direct += (sinT(whistlePh) * 0.85 + whistleSVF.band(nrnd(), svfF(fWh), 0.35) * 0.4)
+                      * wLoud * sTurbo * 2.4;
           }
         }
         for (var ci2 = 0; ci2 < CHN; ci2++) {
@@ -870,9 +885,11 @@ function createEngineCore(SR) {
           if (chE[ci2] < 0.0025) { chOn[ci2] = 0; continue; }
           chF[ci2] *= chFDec[ci2];
           chPh[ci2] += chF[ci2] * invSR; if (chPh[ci2] > 1) chPh[ci2] -= 1;
-          var cTone = sinT(chPh[ci2]) * 0.85 + sinT(chPh[ci2] * 2) * 0.18;
-          var cAir = chSVF[ci2].band(nrnd(), svfF(chF[ci2]), 0.26);
-          direct += (cTone * 1.3 + cAir * 0.8) * chE[ci2] * chAmp[ci2] * sTurbo * 1.05;
+          /* Hvert pust er smalbåndet luft rundt senterfrekvensen, med bare
+             et snev av tone under. Referansen har nesten ingen ren tone. */
+          var cAir = chSVF[ci2].band(nrnd(), svfF(chF[ci2]), 0.34);
+          var cSub = sinT(chPh[ci2]) * 0.35;
+          direct += (cAir * 2.6 + cSub) * chE[ci2] * chAmp[ci2] * sTurbo * 1.25;
         }
         if (bovE > 0.0008) {
           bovE *= bovMul;
@@ -939,7 +956,12 @@ function createEngineCore(SR) {
          motoren og smellene i takt, og knallet får aldri plass å stikke
          opp i — det er derfor de hørtes små ut uansett hvor hardt de ble
          laget. Nå ligger motoren lavere og smellene beholder full høyde. */
-      yL *= sLevel; yR *= sLevel;
+      /* Motoren dukker et øyeblikk mens smellet står på — slik et virkelig
+         hardt smell overdøver alt annet i et par titalls millisekunder. */
+      var duckE = 0;
+      for (var dq = 0; dq < POPN; dq++) if (popOn[dq] && popE2[dq] > duckE) duckE = popE2[dq];
+      var duckG = 1 - duckE * 0.45;
+      yL *= sLevel * duckG; yR *= sLevel * duckG;
       if (direct !== 0) {
         var dOut = directLP.run(directHP.run(direct));
         var dScale = 0.55 + 0.45 * sLevel;     /* følger av/på, ikke turtall */
