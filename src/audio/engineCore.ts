@@ -242,7 +242,8 @@ function createEngineCore(SR) {
   var throttle = 0, throttleOverride = -1;
   var fuelCut = 1, fuelCutT = 0;
   var shiftT = 0, shiftDir = 0, blipT = 0;
-  var limiterT = 0;
+  var limiterT = 0, popGapT = 0;
+  var clockSec = 0;
   var crankT = 0, crankDur = 0.8, stopT = 0;
   var idleWob = 0, idleWobTarget = 0, idleWobT = 0;
   var starterAmp = 0;
@@ -307,6 +308,7 @@ function createEngineCore(SR) {
   dcL.highpass(18, 0.7); dcR.highpass(18, 0.7);
   eqBodyL.peaking(235, 0.9, 2.5); eqBodyR.peaking(235, 0.9, 2.5);
 
+  var directLP = new BQ(), directHP = new BQ();
   var intakeBP = new BQ(), intakeBP2 = new BQ(), mechHP = new BQ();
   intakeBP.bandpass(220, 1.1); intakeBP2.bandpass(680, 0.8); mechHP.highpass(2600, 0.7);
 
@@ -327,7 +329,7 @@ function createEngineCore(SR) {
   /* turbo */
   var boost = 0;                 /* 0-1, med treghet i oppspolingen */
   var whistlePh = 0;
-  var whistleSVF = new SVF(), bovSVF = new SVF();
+  var whistleSVF = new SVF(), bovSVF = new SVF(), bovSVF2 = new SVF();
   var bovE = 0, bovMul = 0, bovAmp = 0, bovFreq = 0, bovFDec = 1, bovCool = 0;
   var thrSlow = 0;
   var limEnv = 0;
@@ -402,11 +404,25 @@ function createEngineCore(SR) {
        forbrenningspulsene og smellene beholder anslaget sitt. */
     outLPL.lowpass(9000, 0.7); outLPR.lowpass(9150, 0.7);
     outEdgeL.peaking(2300, 0.9, 2.4); outEdgeR.peaking(2360, 0.9, 2.4);
+
+    /* Direktebussen: turbohyl og avblåsing. Bare en mild takning i toppen
+       og et høypass som holder den unna bassen — ellers går den urørt forbi
+       kupéfilteret, som ville spist hele plystringen. */
+    directLP.lowpass(7200, 0.7);
+    directHP.highpass(420, 0.7);
   }
   recalcFiring();
   recalcGeometry();
 
+  var MIN_POP_GAP = 0.055;
+  var lastPopAt = -9;
+
   function firePop(strength, big) {
+    if (clockSec - lastPopAt < MIN_POP_GAP) {
+      schedulePop(MIN_POP_GAP - (clockSec - lastPopAt) + 0.012, strength, big);
+      return;
+    }
+    lastPopAt = clockSec;
     for (var k = 0; k < POPN; k++) {
       if (popOn[k]) continue;
       popOn[k] = 1;
@@ -420,8 +436,34 @@ function createEngineCore(SR) {
       return;
     }
   }
+  /* Kø med planlagte smell. Uten den ble en «serie» avfyrt på samme sample
+     og hørtes ut som ett eneste blaff. */
+  var PQN = 14;
+  var pqT = new Float32Array(PQN), pqS = new Float32Array(PQN);
+  var pqBig = new Uint8Array(PQN), pqOn = new Uint8Array(PQN);
+
+  function schedulePop(delay, strength, big) {
+    for (var k = 0; k < PQN; k++) {
+      if (pqOn[k]) continue;
+      pqOn[k] = 1; pqT[k] = delay; pqS[k] = strength; pqBig[k] = big ? 1 : 0;
+      return;
+    }
+  }
+
   function popBurst(n, strength) {
-    for (var i = 0; i < n; i++) firePop(strength * (0.6 + urnd() * 0.7), i === 0);
+    var t = 0;
+    for (var i = 0; i < n; i++) {
+      schedulePop(t, strength * (0.72 + urnd() * 0.55), i === 0 || urnd() < 0.35);
+      t += 0.055 + urnd() * 0.085;      /* 55-140 ms mellom hvert smell */
+    }
+  }
+
+  function tickPopQueue(dt) {
+    for (var k = 0; k < PQN; k++) {
+      if (!pqOn[k]) continue;
+      pqT[k] -= dt;
+      if (pqT[k] <= 0) { pqOn[k] = 0; firePop(pqS[k], pqBig[k] === 1); }
+    }
   }
 
   /* ═══════════════════════════════════════════════════════════════════
@@ -437,11 +479,11 @@ function createEngineCore(SR) {
     if (dir > 0) {
       shiftT = 0.30;
       fuelCutT = 0.075 + urnd() * 0.03;      /* tenningskutt = «bark» */
-      popBurst(1 + ((urnd() * 2.6) | 0), 0.55 + throttle * 0.75);
+      popBurst(3 + ((urnd() * 3.2) | 0), 0.85 + throttle * 0.8);
     } else {
       shiftT = 0.26;
       blipT = 0.17;                          /* mellomgass */
-      if (urnd() < 0.75) popBurst(1, 0.45 + throttle * 0.4);
+      popBurst(1 + ((urnd() * 2.4) | 0), 0.7 + throttle * 0.5);
     }
     pushEvent('shift', dir);
   }
@@ -548,6 +590,8 @@ function createEngineCore(SR) {
     rpm += (rpmTarget - rpm) * clamp(dt / tau, 0, 1);
     if (state !== ST_OFF && state !== ST_STOP) rpm = clamp(rpm, 120, cfg.maxRpm * 1.05);
 
+    tickPopQueue(dt);
+
     /* ---- tenningskutt ---- */
     if (fuelCutT > 0) fuelCutT -= dt;
     var cutTarget = fuelCutT > 0 ? 0.05 : 1;
@@ -556,12 +600,16 @@ function createEngineCore(SR) {
     /* ---- smell i eksosen ----
        Ekte etterbrenning skjer når uforbrent drivstoff treffer varm eksos:
        på motorbrems, ved tenningskutt og rett etter girskift.            */
+    if (popGapT > 0) popGapT -= dt;
     if (state === ST_RUN) {
       var hot = clamp((rpm - 1600) / 3200, 0, 1);
       var overrun = (throttle < 0.08 && accel < -0.25) ? 1 : 0;
-      var rate = cfg.popRate * hot * (overrun * 9 + (fuelCutT > 0 ? 26 : 0) + hot * 0.4);
-      if (rate > 0 && urnd() < rate * dt) {
-        firePop((0.25 + hot * 0.7) * (overrun ? 1 : 0.8), urnd() < 0.22);
+      var rate = cfg.popRate * hot * (overrun * 5.5 + (fuelCutT > 0 ? 14 : 0) + hot * 0.3);
+      /* Sperretid mellom smellene. Uten den kom de i maskingeværsalver
+         og gikk i ett, i stedet for å høres som enkeltsmell. */
+      if (rate > 0 && popGapT <= 0 && urnd() < rate * dt) {
+        firePop((0.45 + hot * 0.8) * (overrun ? 1 : 0.85), urnd() < 0.3);
+        popGapT = 0.085 + urnd() * 0.13;
       }
     }
 
@@ -620,6 +668,7 @@ function createEngineCore(SR) {
      ═══════════════════════════════════════════════════════════════════ */
   function render(outL, outR, n) {
     var dt = n * invSR;
+    clockSec += dt;
     updateVehicle(dt);
 
     if (state === ST_OFF && rpm < 1 && limEnv < 0.001) {
@@ -726,6 +775,7 @@ function createEngineCore(SR) {
       /* ---- H-rør + doble midtrør ---- */
       var inL = hA + hB * xo + pL;
       var inR = hB + hA * xo + pR;
+      direct += (pL + pR) * 0.22;      /* knallet, før røret farger det */
 
       var mL = midL.read(midDL);
       midL.write(inL - midLPL.lp(mL, dampA2) * mrefl);
@@ -747,20 +797,37 @@ function createEngineCore(SR) {
         mono += (intakeBP.run(nz) * 1.6 + intakeBP2.run(nz) * 0.5) * sIntake;
       }
       mono += mechHP.run((bdA + bdB) * (0.6 + 0.4 * urnd())) * sMech;
-      /* ---- kompressorhyl og avblåsing ---- */
+      /* ---- kompressorhyl og avblåsing ----
+         Går på direktebussen, ikke gjennom eksosen. Frekvensområdet er
+         hevet til 1,4-6 kHz der en turbo faktisk plystrer, og luftdelen
+         veier tyngre enn tonen — det er suset som gjør at det høres ut
+         som en turbo og ikke som en sinustone. */
+      var direct = 0;
       if (sTurbo > 0.001) {
-        if (sBoost > 0.01) {
-          var fWh = 820 + sBoost * 2500 + rpmCur * 0.10;
-          whistlePh += fWh * invSR; if (whistlePh > 1) whistlePh -= 1;
-          var wTone = sinT(whistlePh) * 0.62 + sinT(whistlePh * 2) * 0.22;
-          var wAir = whistleSVF.band(nrnd(), svfF(fWh * 1.2), 0.30);
-          mono += (wTone + wAir * 1.7) * sBoost * sBoost * sTurbo * 0.085;
+        if (sBoost > 0.17) {
+          /* En turbo plystrer ikke før den faktisk lager trykk. Uten denne
+             terskelen hylte den gjennom hele marsjfarten og overdøvet motoren. */
+          var bb = sBoost - 0.16;
+          if (bb > 0) {
+            var wLoud = bb * bb * 2.2;
+            var fWh = 1400 + sBoost * 4200 + rpmCur * 0.16;
+            whistlePh += fWh * invSR; if (whistlePh > 1) whistlePh -= 1;
+            var wTone = sinT(whistlePh) * 0.5 + sinT(whistlePh * 2) * 0.16;
+            /* q = 0,16 var nesten selvsvingende og ga et skrik. 0,55 gir
+               luftig plystring i stedet for en ren tone. */
+            var wAir = whistleSVF.band(nrnd(), svfF(fWh), 0.55);
+            direct += (wTone * 0.8 + wAir * 2.0) * wLoud * sTurbo * 1.15;
+          }
         }
         if (bovE > 0.0008) {
           bovE *= bovMul;
           bovFreq *= bovFDec;
-          if (bovFreq < 260) bovFreq = 260;
-          mono += bovSVF.band(nrnd(), svfF(bovFreq), 0.5) * bovE * bovAmp * sTurbo * 1.35;
+          if (bovFreq < 300) bovFreq = 300;
+          /* to filtre gir bredere, mer luftig fres enn ett smalt */
+          var bn = nrnd();
+          direct += (bovSVF.band(bn, svfF(bovFreq), 0.55) +
+                     bovSVF2.band(bn, svfF(bovFreq * 1.9), 0.9) * 0.7) *
+                    bovE * bovAmp * sTurbo * 5.5;
         }
       }
       if (sWhine > 0.001) {
@@ -813,6 +880,11 @@ function createEngineCore(SR) {
       yL = inL * sCabin + exL * (1 - sCabin);
       yR = inR * sCabin + exR * (1 - sCabin);
 
+      if (direct !== 0) {
+        var dOut = directLP.run(directHP.run(direct));
+        yL += dOut; yR += dOut * 0.94;   /* nesten senter, men ikke helt */
+      }
+
       /* ---- liten romfølelse ---- */
       var ra = revA.read(revDA), rb = revB.read(revDB);
       revA.write(yL * 0.5 + revLPa.lp(rb, 0.42) * 0.12);
@@ -823,9 +895,9 @@ function createEngineCore(SR) {
 
       /* ---- limiter (koblet stereo) ---- */
       var pk = Math.abs(yL) > Math.abs(yR) ? Math.abs(yL) : Math.abs(yR);
-      if (pk > limEnv) limEnv += (pk - limEnv) * 0.75;
+      if (pk > limEnv) limEnv += (pk - limEnv) * 0.88;
       else limEnv += (pk - limEnv) * 0.0009;
-      var g = limEnv > 0.88 ? 0.88 / limEnv : 1;
+      var g = limEnv > 0.84 ? 0.84 / limEnv : 1;
       yL *= g; yR *= g;
 
       outL[i] = yL < -1 ? -1 : (yL > 1 ? 1 : yL);

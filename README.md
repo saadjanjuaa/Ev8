@@ -90,7 +90,36 @@ overtrykket freser ut: et bredt støyutbrudd som synker i frekvens etter hvert
 som trykket faller. Over det ligger **kompressorhylet**, en tone pluss luft som
 følger ladetrykket.
 
+To ting avgjør om man faktisk hører den:
+
+**Den går på en egen direktebuss**, ikke gjennom eksosen. Turboen sitter i
+motorrommet, ikke i enderøret — og sendes den gjennom kupémikrofonens lavpass
+på 2,5 kHz forsvinner hele plystringen.
+
+**Den er terskelstyrt.** En ekte turbo plystrer ikke før den lager trykk. Uten
+terskel hylte den gjennom hele marsjfarten og overdøvet motoren. Målt bidrag i
+plysterområdet 1,4–6 kHz:
+
+| | Hard akselerasjon | Marsjfart |
+|---|---|---|
+| MUSCLE V8 | **+12,6 dB** | ±0,3 dB |
+| JDM TURBO | **+9,5 dB** | ±0,2 dB |
+
 Styres med skyvebryteren **TURBO** i innstillingene, fra av til maks.
+
+## Smell
+
+Smellene fyres gjennom en kø med ekte avstand imellom, og en sperretid på 55 ms
+som gjelder alle kilder. Uten den ble en «serie» avfyrt på nøyaktig samme sample
+og hørtes ut som ett eneste blaff, og de tilfeldige smellene kom i
+maskingeværsalver.
+
+Et girskift gir nå 3–6 smell fordelt over 55–140 ms hver. En del av knallet går
+rett ut på direktebussen så anslaget beholdes, resten gjennom røret som gir
+klangen.
+
+Målt i testkjøringen: 43 smell, korteste avstand 58 ms, median 206 ms, ingen
+under 40 ms.
 
 ## Testkjøring
 
