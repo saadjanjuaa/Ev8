@@ -246,6 +246,14 @@ npx expo start
 Skann QR-koden med Expo Go. Alt som brukes ligger i Expo Go, så du trenger ikke
 bygge appen selv for å prøve den.
 
+Prosjektet står på **Expo SDK 56** med vilje, ikke på siste SDK. Expo Go i App
+Store ligger et stykke bak npm: når en ny SDK slippes på npm, tar det tid før
+Expo Go med støtte for den er gjennom app-godkjenning. Står prosjektet på en
+SDK som er nyere enn telefonens Expo Go, nekter den å åpne prosjektet i det
+hele tatt — «requires a newer version of Expo Go» — uansett hvor oppdatert
+appen er. En SDK bak er den trygge plasseringen. Skal den oppgraderes, sjekk
+først hvilken SDK Expo Go faktisk støtter.
+
 I bilen:
 
 1. Koble telefonen til stereoen (AUX eller Bluetooth).

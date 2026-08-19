@@ -11,17 +11,17 @@
   },
   "dependencies": {
     "@react-native-community/slider": "5.2.0",
-    "expo": "~57.0.14",
-    "expo-audio": "~57.0.3",
-    "expo-blur": "~57.0.2",
-    "expo-keep-awake": "~57.0.1",
-    "expo-linear-gradient": "~57.0.1",
-    "expo-location": "~57.0.11",
-    "expo-sensors": "~57.0.2",
-    "expo-status-bar": "~57.0.1",
-    "expo-system-ui": "~57.0.2",
+    "expo": "~56.0.20",
+    "expo-audio": "~56.0.13",
+    "expo-blur": "~56.0.4",
+    "expo-keep-awake": "~56.0.3",
+    "expo-linear-gradient": "~56.0.4",
+    "expo-location": "~56.0.24",
+    "expo-sensors": "~56.0.6",
+    "expo-status-bar": "~56.0.4",
+    "expo-system-ui": "~56.0.5",
     "react": "19.2.3",
-    "react-native": "0.86.2",
+    "react-native": "0.85.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
     "react-native-webview": "13.16.1"
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@babel/core": "^7.28.0",
     "@types/react": "~19.2.0",
-    "babel-preset-expo": "~57.0.7",
+    "babel-preset-expo": "~56.0.19",
     "typescript": "~5.9.2"
   }
 }
