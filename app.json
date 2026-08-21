@@ -11,7 +11,10 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.ev8.enginesound",
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "location"],
+        "UIBackgroundModes": [
+          "audio",
+          "location"
+        ],
         "NSLocationWhenInUseUsageDescription": "EV8 bruker posisjonen din til å måle farten, slik at motorlyden følger kjøringen.",
         "NSMotionUsageDescription": "EV8 bruker bevegelsessensoren til å merke akselerasjon med én gang, i stedet for å vente på neste GPS-punkt."
       }
@@ -19,7 +22,10 @@
     "android": {
       "package": "com.ev8.enginesound",
       "edgeToEdgeEnabled": true,
-      "adaptiveIcon": { "backgroundColor": "#05070C" },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#05070C"
+      },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -30,11 +36,21 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 190,
+          "resizeMode": "contain",
+          "backgroundColor": "#07080C"
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "EV8 bruker posisjonen din til å måle farten, slik at motorlyden følger kjøringen."
         }
       ]
-    ]
+    ],
+    "icon": "./assets/icon.png"
   }
 }
