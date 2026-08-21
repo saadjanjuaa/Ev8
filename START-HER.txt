@@ -37,16 +37,34 @@ lokal fil, og heller ikke til en side som kjører inne i en ramme. Vil du
 ha ekte fart uten hosting, bruk appen over i stedet.
 
 
-EN EKTE APP-FIL
+UT PÅ TESTFLIGHT
 ───────────────
-    npm install -g eas-cli
-    eas login
-    eas build -p ios --profile preview      (krever Apple-utviklerkonto)
-    eas build -p android --profile preview
-
 Med Expo Go henter telefonen koden fra maskinen din over Wi-Fi. Kjører du
 hjemmefra og appen blir drept, får den den ikke igjen. Til ordentlig
-kjøring vil du ha en eas build.
+kjøring vil du ha appen installert for seg selv.
+
+Engangsoppsett:
+    npm install -g eas-cli
+    eas login                    (Expo-konto, gratis)
+    eas init                     (kobler mappa til et Expo-prosjekt)
+
+Så, hver gang:
+    npm run build:ios            (bygger i skyen, 15-25 min)
+    npm run submit:ios           (laster opp til App Store Connect)
+
+Deretter i App Store Connect: TestFlight -> legg deg selv til som intern
+tester. Bygget dukker opp der etter 5-30 minutters prosessering, og du får
+en e-post. Interne testere trenger IKKE gjennom Apples godkjenning.
+
+KREVER APPLE DEVELOPER PROGRAM — 99 dollar i året. Det finnes ingen vei
+utenom for TestFlight. Selve medlemskapet kan ta et døgn eller to å bli
+godkjent etter at du har betalt.
+
+Vil du bare ha noe på en Android-telefon, er det gratis og tar minutter:
+    npm run build:apk
+
+Byggeprofilene ligger i eas.json. 'testflight' teller opp byggnummeret av
+seg selv, så du slipper å redigere det for hånd mellom opplastinger.
 
 
 HVOR LYDEN BOR
