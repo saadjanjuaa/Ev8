@@ -253,6 +253,8 @@ function createEngineCore(SR) {
   var shiftT = 0, shiftDir = 0, blipT = 0;
   var limiterT = 0, popGapT = 0;
   var coast = 0, coastT = 0;         /* ruller på tomgang: 0 = under last, 1 = fritt */
+  var braking = false;               /* farten faller akkurat nå */
+  var thrRecent = 0;                 /* har foten vært på gassen det siste halvsekundet */
   var clockSec = 0;
   var crankT = 0, crankDur = 0.8, stopT = 0;
   var idleWob = 0, idleWobTarget = 0, idleWobT = 0;
@@ -544,8 +546,12 @@ function createEngineCore(SR) {
       popBurst(1 + ((urnd() * 2.6) | 0), 0.55 + throttle * 0.75);
     } else {
       shiftT = 0.26;
-      /* Mellomgass bare når du girer ned for å kjøre — ikke på vei mot rødt lys */
-      if (accel > -0.6) blipT = 0.17;
+      /* Mellomgass hører hjemme når du girer ned for å kjøre videre. To
+         vilkår må holde: bilen bremser ikke, OG foten har faktisk vært på
+         gassen det siste halvsekundet. Uten det andre vilkåret ga hver
+         nedgiring på vei inn mot et lyskryss et gasspådrag — og en
+         oppbremsing fra fart gir fire-fem nedgiringer på rad. */
+      if (!braking && thrRecent > 0.18) blipT = 0.17;
       if (urnd() < 0.75) popBurst(1, 0.45 + throttle * 0.4);
     }
     pushEvent('shift', dir);
@@ -579,17 +585,27 @@ function createEngineCore(SR) {
     var dragLoad = clamp(speed / 34, 0, 0.28);          /* luftmotstand ved fart */
     var aDemand = clamp(accel / aRef, -2, 2);
     var demand = clamp(dragLoad + (1 - dragLoad) * aDemand, 0, 1);
-    /* Faller farten, er foten av gassen. Dette leses av farten alene, ikke
-       av akselerometeret, så det gjelder uansett hvordan telefonen ligger. */
-    if (dv < -0.25 || accel < -0.35) demand = 0;
-    /* Mellomgass ved nedgir hører hjemme når du girer ned for å kjøre
-       videre — ikke når du bremser inn mot et lyskryss. Da er det bare
-       en motor som gasser av seg selv. */
-    if (blipT > 0 && dv > -0.4) demand = 0.55;
+    /* Mellomgass ved nedgir, før bremseregelen — så bremsingen kan
+       overstyre den og ikke omvendt. */
+    if (blipT > 0) demand = 0.55;
+
+    /* Faller farten, er foten av gassen. Punktum.
+
+       Dette leses av farten, ikke av akselerometeret: farten er treg, men
+       fortegnet er alltid riktig, mens akselerometerets fortegn bare er så
+       godt som den lærte framoverretningen. Regelen står sist og uten
+       unntak, fordi hvert unntak har vist seg som en motor som gasser mens
+       bilen bremser. Terskelen er lav med vilje — 0,15 m/s² er mindre enn
+       en rolig oppbremsing, men mer enn støyen i fartsmålingen. */
+    braking = dv < -0.15;
+    if (braking || accel < -0.35) demand = 0;
     if (throttleOverride >= 0) demand = throttleOverride;
     var trate = demand > throttle ? 11 : 5.5;
     throttle += (demand - throttle) * clamp(dt * trate, 0, 1);
     throttle = clamp(throttle, 0, 1);
+    /* Treg middelverdi over drøyt et halvsekund: «har det vært gass her
+       nylig». Brukes til å avgjøre om en nedgiring skal ha mellomgass. */
+    thrRecent += (throttle - thrRecent) * clamp(dt * 2.2, 0, 1);
 
     /* ---- tomgangsvariasjon (motoren «puster») ---- */
     idleWobT -= dt;
@@ -1088,6 +1104,7 @@ function createEngineCore(SR) {
       for (var z1 = 0; z1 < CHN; z1++) chOn[z1] = 0;
       rpm = 90; gear = 0; gearTime = 1; speed = 0; speedPrev = 0;
       throttle = 0; fuelCut = 1; limEnv = 0; coast = 0; coastT = 0;
+      braking = false; thrRecent = 0;
       pushEvent('cranking', 1);
     },
 
