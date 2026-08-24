@@ -2,7 +2,7 @@
   "expo": {
     "name": "EV8",
     "slug": "ev8",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#05070C",

@@ -254,6 +254,8 @@ function createEngineCore(SR) {
   var limiterT = 0, popGapT = 0;
   var coast = 0, coastT = 0;         /* ruller på tomgang: 0 = under last, 1 = fritt */
   var braking = false;               /* farten faller akkurat nå */
+  var speedInPrev = 0, dvQuick = 0;  /* rå fartsendring, til å fange gasslipp fort */
+  var brakeT = 0;                    /* hvor lenge farten har falt sammenhengende */
   var thrRecent = 0;                 /* har foten vært på gassen det siste halvsekundet */
   var clockSec = 0;
   var crankT = 0, crankDur = 0.8, stopT = 0;
@@ -559,7 +561,15 @@ function createEngineCore(SR) {
 
   function updateVehicle(dt) {
     /* ---- inngang: fart og akselerasjon ---- */
-    speed += (speedIn - speed) * clamp(dt * 7.5, 0, 1);
+    /* Farten glattes før den brukes til turtall, ellers hopper tonehøyden.
+       Men glattingen koster tid, og å lete etter gasslippet i et glattet
+       signal er å lete etter det for seint. Derfor holdes en rå
+       fartsendring ved siden av: samme fortegn, uten forsinkelsen. */
+    var dvRaw = (speedIn - speedInPrev) / Math.max(dt, 1e-4);
+    speedInPrev = speedIn;
+    dvQuick += (dvRaw - dvQuick) * clamp(dt * 22, 0, 1);
+
+    speed += (speedIn - speed) * clamp(dt * 9.5, 0, 1);
     var dv = (speed - speedPrev) / Math.max(dt, 1e-4);
     speedPrev = speed;
     /* Akselerometeret er raskt, men fortegnet er bare så godt som den
@@ -597,10 +607,31 @@ function createEngineCore(SR) {
        unntak, fordi hvert unntak har vist seg som en motor som gasser mens
        bilen bremser. Terskelen er lav med vilje — 0,15 m/s² er mindre enn
        en rolig oppbremsing, men mer enn støyen i fartsmålingen. */
-    braking = dv < -0.15;
+    /* Den raske og den trege får hver sin stemme, og det holder at én av
+       dem ser at farten faller. Den raske fanger gasslippet med en gang;
+       den trege fanger en langsom utrulling der endringen per sekund er
+       for liten til å skille seg fra støy i det raske signalet. Den raske
+       har høyere terskel nettopp fordi den er den urolige av de to.
+
+       Men et raskt signal er også et nervøst signal. Uten det som følger
+       her falt gassen ut over hundre ganger i minuttet på jevn marsjfart,
+       fordi fartsmålingen vandrer noen desimeter i sekundet. Det hakket
+       var verre enn forsinkelsen det skulle fjerne.
+
+       Skillet er at bremsing varer, mens støy ikke gjør det. Derfor måles
+       hvor lenge farten har falt SAMMENHENGENDE. Seksti millisekunder er
+       nok til å tro på det — kort nok til at foten din fortsatt føles
+       fulgt — og tilstanden slippes langsommere enn den tas, så den ikke
+       flimrer på vei ut heller. */
+    var fallerNaa = dvQuick < -0.30 || dv < -0.15;
+    if (fallerNaa) { brakeT += dt; if (brakeT > 0.5) brakeT = 0.5; }
+    else { brakeT -= dt * 2.5; if (brakeT < 0) brakeT = 0; }
+    braking = brakeT > 0.06;
     if (braking || accel < -0.35) demand = 0;
     if (throttleOverride >= 0) demand = throttleOverride;
-    var trate = demand > throttle ? 11 : 5.5;
+    /* Pedalen slippes fortere enn den tråkkes ned, og fortest når bilen
+       faktisk bremser. En ekte motor gir seg med en gang foten går av. */
+    var trate = demand > throttle ? 11 : (braking ? 17 : 7);
     throttle += (demand - throttle) * clamp(dt * trate, 0, 1);
     throttle = clamp(throttle, 0, 1);
     /* Treg middelverdi over drøyt et halvsekund: «har det vært gass her
@@ -752,7 +783,7 @@ function createEngineCore(SR) {
        tilbake, er dempingen borte med en gang. */
     var ruller = throttle < 0.12 && dv > -0.9 && dv < 0.35 && state === ST_RUN;
     coastT = ruller ? coastT + dt : 0;
-    var coastTarget = ruller ? clamp((coastT - 0.6) / 1.4, 0, 1) : 0;
+    var coastTarget = ruller ? clamp((coastT - 0.4) / 1.2, 0, 1) : 0;
     coast += (coastTarget - coast) * clamp(dt * (coastTarget > coast ? 1.6 : 9), 0, 1);
 
     var tq = 0.82 + 0.30 * sinT(clamp(rpm / (cfg.torquePeak * 2), 0, 1) * 0.5);
@@ -1103,6 +1134,7 @@ function createEngineCore(SR) {
       boost = 0; bovE = 0; bovCool = 0; thrSlow = 0;
       for (var z1 = 0; z1 < CHN; z1++) chOn[z1] = 0;
       rpm = 90; gear = 0; gearTime = 1; speed = 0; speedPrev = 0;
+      speedInPrev = 0; dvQuick = 0; brakeT = 0;
       throttle = 0; fuelCut = 1; limEnv = 0; coast = 0; coastT = 0;
       braking = false; thrRecent = 0;
       pushEvent('cranking', 1);
